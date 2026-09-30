@@ -101,11 +101,26 @@ function bucketLabel(b, grain) {
   return grain === "day" ? md : `wk ${md}`;
 }
 
+const vfmt = (vital, v) => v == null ? "" : vital === "temp" ? v.toFixed(1) : Math.round(v).toString();
+
 function renderGrid(g) {
   const nowBucket = g.buckets[g.buckets.length - 1];
-  const head = `<thead><tr><th class="drug">Medication / fluid (unit)</th>${g.buckets.map((b) =>
+  const head = `<thead><tr><th class="drug">Vital / medication / fluid (unit)</th>${g.buckets.map((b) =>
     `<th class="${b === nowBucket ? "now" : ""}" title="${b}">${bucketLabel(b, g.grain)}</th>`).join("")}<th>Total</th></tr></thead>`;
   let body = "", cat = null;
+  if (g.vitals.length) {
+    body += `<tr class="cat"><td class="drug">Vital signs</td><td colspan="${g.buckets.length + 1}"></td></tr>`;
+    for (const v of g.vitals) {
+      body += `<tr><td class="drug">${esc(v.label)}<small>${esc(v.unit)}</small></td>${g.buckets.map((b) => {
+        const c = v.cells[b];
+        const now = b === nowBucket ? "now" : "";
+        if (!c) return `<td class="${now}"></td>`;
+        const tip = `${v.label}: median ${vfmt(v.vital, c.median)}, range ${vfmt(v.vital, c.min)}–${vfmt(v.vital, c.max)} ${v.unit}, ${c.n} reading${c.n === 1 ? "" : "s"} · click for details`;
+        const sel = state.sel && state.sel.vital === v.vital && state.sel.bucket === b ? " sel" : "";
+        return `<td class="${now} vt${sel}" tabindex="0" role="button" data-vital="${v.vital}" data-bucket="${b}" title="${esc(tip)}">${vfmt(v.vital, c.median)}</td>`;
+      }).join("")}<td></td></tr>`;
+    }
+  }
   for (const r of g.rows) {
     if (r.category !== cat) {
       cat = r.category;
@@ -120,11 +135,11 @@ function renderGrid(g) {
         const cls = [b === nowBucket ? "now" : "", c ? "v" : "", c && vals[i] >= max * 0.66 ? "hi" : ""].join(" ");
         if (!c) return `<td class="${cls}"></td>`;
         const tip = `${r.label}: ${fmt(c.amount)} ${r.unit}${c.max_rate != null ? ` · max rate ${fmt(c.max_rate)} ${c.rate_unit}` : ""} · click for details`;
-        const sel = state.sel && state.sel.itemid === r.itemid && state.sel.bucket === b ? " sel" : "";
+        const sel = state.sel && !state.sel.vital && state.sel.itemid === r.itemid && state.sel.bucket === b ? " sel" : "";
         return `<td class="${cls}${sel}" tabindex="0" role="button" data-item="${r.itemid}" data-bucket="${b}" title="${esc(tip)}">${fmt(c.amount)}</td>`;
       }).join("")}<td><b>${fmt(total)}</b></td></tr>`;
   }
-  if (!g.rows.length) body = `<tr><td class="drug empty" colspan="${g.buckets.length + 2}">Nothing charted in this window.</td></tr>`;
+  if (!g.rows.length && !g.vitals.length) body = `<tr><td class="drug empty" colspan="${g.buckets.length + 2}">Nothing charted in this window.</td></tr>`;
   $("#grid").innerHTML = head + `<tbody>${body}</tbody>`;
   const wrap = $("#gridwrap");
   wrap.scrollLeft = wrap.scrollWidth;
@@ -149,6 +164,9 @@ function renderSafety(s) {
     <h2>Running at ${clock.slice(11)}</h2>
     <ul class="plain">${s.running.map((r) => `<li><span>${esc(r.drug)}</span><span class="muted">${
       r.rate ? `${fmt(r.rate.value)} ${esc(r.rate.unit)}` : ""}</span></li>`).join("") || '<li class="empty">None</li>'}</ul>
+    <h2>Latest vitals (charted by ${clock.slice(11)})</h2>
+    <ul class="plain">${s.vitals.map((v) => `<li><span>${esc(v.name)}</span><span>${vfmt(v.vital, v.value)} ${esc(v.unit)}
+      <span class="muted">${String(v.charttime).slice(11, 16)}</span></span></li>`).join("") || '<li class="empty">None in 24 h</li>'}</ul>
     <h2>Latest labs (available by ${clock.slice(11)})</h2>
     <ul class="plain">${s.labs.map((l) => `<li><span>${esc(l.label)}</span><span>${l.valuenum} ${esc(l.valueuom ?? "")}
       <span class="muted">${String(l.charttime).slice(5, 16).replace("T", " ")}</span></span></li>`).join("") || '<li class="empty">None in 48 h</li>'}</ul>
@@ -168,10 +186,46 @@ const DUR = { hour: 3600e3, day: 86400e3, week: 7 * 86400e3 };
 const when = (s) => { const d = parse(String(s)); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
 const span = (a, b) => { const m = Math.round((parse(String(b)) - parse(String(a))) / 60e3); return m < 60 ? `${m} min` : `${(m / 60).toFixed(m % 60 ? 1 : 0)} h`; };
 
+function markSelected(sel) {
+  state.sel = sel;
+  document.querySelectorAll("td.sel").forEach((el) => el.classList.remove("sel"));
+  const q = sel.vital ? `td.vt[data-vital="${sel.vital}"]` : `td.v[data-item="${sel.itemid}"]`;
+  document.querySelector(`${q}[data-bucket="${sel.bucket}"]`)?.classList.add("sel");
+}
+
+async function openVital(vital, bucket) {
+  markSelected({ vital, bucket });
+  const dlg = $("#detail");
+  dlg.innerHTML = `<div class="d-body"><p class="empty">Loading…</p></div>`;
+  if (!dlg.open) dlg.showModal();
+  const q = new URLSearchParams({ vital, bucket, grain: state.grain, as_of: iso(state.clock) });
+  const d = await api(`/api/stays/${state.stay.stay_id}/vitals/cell?${q}`);
+  const vals = d.readings.map((r) => r.value).sort((a, b) => a - b);
+  const median = vals.length ? (vals.length % 2 ? vals[(vals.length - 1) / 2] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2) : null;
+  const end = new Date(+parse(bucket) + DUR[state.grain]).toISOString();
+  const label = state.grain === "hour" ? `${when(bucket)} – ${when(end).slice(-5)}` : `${when(bucket).slice(0, -6)} – ${when(new Date(+parse(end) - 1).toISOString()).slice(0, -6)}`;
+  const rows = d.readings.map((r) => {
+    const late = r.storetime ? Math.round((parse(String(r.storetime)) - parse(String(r.charttime))) / 60e3) : null;
+    return `<tr><td class="l">${when(r.charttime)}</td><td><b>${vfmt(vital, r.value)}</b></td><td class="l">${esc(r.label)}</td>
+      <td class="l muted">${late != null ? `${late} min later` : "not yet charted"}</td></tr>`;
+  }).join("");
+  dlg.innerHTML = `
+    <div class="d-head">
+      <div class="row" style="margin-top:0"><span class="muted">Vital signs</span><button id="d-close" aria-label="Close">✕</button></div>
+      <h3 id="d-title">${esc(d.label)}</h3>
+      <div class="muted">${label}</div>
+      <div class="row"><span class="d-total">${vfmt(vital, median)} <span class="muted" style="font-size:14px">${esc(d.unit)} median</span></span>
+        <button id="d-jump" title="Move the pump clock to the end of this ${state.grain}">Set pump clock here</button></div>
+      <div class="muted" style="font-size:12px">${vals.length} reading${vals.length === 1 ? "" : "s"}${vals.length ? ` · range ${vfmt(vital, vals[0])}–${vfmt(vital, vals[vals.length - 1])}` : ""}</div>
+    </div>
+    <div class="d-body"><table class="readings"><thead><tr><th class="l">Time</th><th>Value</th><th class="l">Source</th><th class="l">Charted</th></tr></thead>
+      <tbody>${rows || '<tr><td class="l empty" colspan="4">No readings.</td></tr>'}</tbody></table></div>`;
+  $("#d-close").onclick = () => dlg.close();
+  $("#d-jump").onclick = () => { dlg.close(); setClock(parse(end)); };
+}
+
 async function openCell(itemid, bucket) {
-  state.sel = { itemid, bucket };
-  document.querySelectorAll("td.v.sel").forEach((el) => el.classList.remove("sel"));
-  document.querySelector(`td.v[data-item="${itemid}"][data-bucket="${bucket}"]`)?.classList.add("sel");
+  markSelected({ itemid, bucket });
   const dlg = $("#detail");
   dlg.innerHTML = `<div class="d-body"><p class="empty">Loading…</p></div>`;
   if (!dlg.open) dlg.showModal();
@@ -212,8 +266,12 @@ async function openCell(itemid, bucket) {
   $("#d-jump").onclick = () => { dlg.close(); setClock(parse(String(end))); };
 }
 
-$("#grid").addEventListener("click", (e) => { const td = e.target.closest("td.v"); if (td) openCell(+td.dataset.item, td.dataset.bucket); });
-$("#grid").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("td.v")) { e.preventDefault(); e.target.click(); } });
+$("#grid").addEventListener("click", (e) => {
+  const td = e.target.closest("td.v, td.vt");
+  if (!td) return;
+  td.dataset.vital ? openVital(td.dataset.vital, td.dataset.bucket) : openCell(+td.dataset.item, td.dataset.bucket);
+});
+$("#grid").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("td.v, td.vt")) { e.preventDefault(); e.target.click(); } });
 $("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") e.target.close(); });
 
 $("#stays").addEventListener("click", (e) => { const el = e.target.closest(".stay"); if (el) selectStay(+el.dataset.id); });

@@ -17,6 +17,17 @@ FILES = {
 225855,Ceftriaxone,Ceftriaxone,inputevents,Antibiotics,dose,Solution,,
 221456,Calcium Gluconate,Calcium Gluconate,inputevents,Medications,grams,Solution,,
 225158,NaCl 0.9%,NaCl 0.9%,inputevents,Fluids/Intake,mL,Solution,,
+220045,Heart Rate,HR,chartevents,Routine Vital Signs,bpm,Numeric,,
+220179,Non Invasive Blood Pressure systolic,NBPs,chartevents,Routine Vital Signs,mmHg,Numeric,,
+223762,Temperature Celsius,Temperature C,chartevents,Routine Vital Signs,°C,Numeric,,
+""",
+    "icu/chartevents.csv.gz": """subject_id,hadm_id,stay_id,caregiver_id,charttime,storetime,itemid,value,valuenum,valueuom,warning
+1,11,101,9,2150-01-01 10:05:00,2150-01-01 10:06:00,220045,80,80,bpm,0
+1,11,101,9,2150-01-01 10:35:00,2150-01-01 10:36:00,220045,90,90,bpm,0
+1,11,101,9,2150-01-01 10:40:00,2150-01-01 10:41:00,220045,9999,9999,bpm,0
+1,11,101,9,2150-01-01 10:10:00,2150-01-01 10:11:00,220179,120,120,mmHg,0
+1,11,101,9,2150-01-01 10:00:00,2150-01-01 10:02:00,223762,37,37,°C,0
+1,11,101,9,2150-01-01 11:50:00,2150-01-01 12:30:00,220045,130,130,bpm,0
 """,
     "icu/inputevents.csv.gz": """subject_id,hadm_id,stay_id,caregiver_id,starttime,endtime,storetime,itemid,amount,amountuom,rate,rateuom,orderid,linkorderid,ordercategoryname,secondaryordercategoryname,ordercomponenttypedescription,ordercategorydescription,patientweight,totalamount,totalamountuom,isopenbag,continueinnextdept,statusdescription,originalamount,originalrate
 1,11,101,9,2150-01-01 10:30:00,2150-01-01 12:30:00,2150-01-01 10:31:00,225166,20,mEq,50,mL/hour,1,1,01-Drips,,Main order parameter,Continuous Med,80,100,mL,0,0,FinishedRunning,20,50

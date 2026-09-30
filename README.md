@@ -25,6 +25,10 @@ raised, and its output is rejected unless it matches those flags one-to-one.
 A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were streaming into it:
 
 - **Grid** of every infusion and medication given, per drug, by **hour, day, or week**.
+- **Vital signs** (heart rate, systolic/diastolic/mean BP from arterial line or cuff, respiratory
+  rate, SpO2, temperature in °F) at the top of the grid as the median per hour/day/week; click a
+  cell for every reading, its source, and its charting delay. The safety panel lists the latest
+  vitals charted by the pump clock. Impossible values (e.g. HR 9999) are dropped at build time.
 - **Click any cell** to see the charted events behind it: start/end, rate, how much of each event fell
   in that hour/day/week, the rest of the same bag (e.g. the carrier fluid of an additive), order,
   weight, and charting delay. Shares always sum to the cell value.
@@ -36,7 +40,7 @@ A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were
 
 ```bash
 uv pip install -e ".[app,dev]"
-.venv/bin/curie-infusion mimic-build ~/AI/mimiciv-v3.1/mimiciv/3.1   # once, ~30 s -> data/mimic/
+.venv/bin/curie-infusion mimic-build ~/AI/mimiciv-v3.1/mimiciv/3.1   # once, a few minutes -> data/mimic/
 .venv/bin/curie-infusion serve                                        # http://127.0.0.1:8765
 ```
 

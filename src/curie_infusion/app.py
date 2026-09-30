@@ -20,7 +20,7 @@ from .billing.charges import ADMIN_CODES, admin_lines, drug_lines, load_crosswal
 from .billing.prices import load_asp, load_opps
 from .fhir import BundleIndex
 from .mimic.fhir_adapter import build_bundle
-from .mimic.store import GRAINS, MimicStore
+from .mimic.store import GRAINS, VITALS, MimicStore
 from .rules import blocked_medications, evaluate_flags, load_rules, running_at
 from .summary import summarize
 
@@ -150,11 +150,19 @@ def grid(stay_id: int, grain: str = "hour", as_of: datetime | None = None) -> di
         row["cells"][c["bucket"].isoformat()] = {
             "amount": c["amount"], "max_rate": c["max_rate"], "rate_unit": c["rate_unit"],
         }
-    buckets = sorted({c["bucket"] for c in cells} | ({hour_end - timedelta(hours=h) for h in range(1, 25)} if grain == "hour" else set()))
+    vital_cells = store().vitals_grid(stay_id, grain, start, clock)
+    vitals = {key: {"vital": key, "label": label, "unit": unit, "cells": {}} for key, (label, unit, _) in VITALS.items()}
+    for c in vital_cells:
+        vitals[c["vital"]]["cells"][c["bucket"].isoformat()] = {
+            k: c[k] for k in ("median", "min", "max", "last", "n")
+        }
+    buckets = sorted({c["bucket"] for c in cells} | {c["bucket"] for c in vital_cells}
+                     | ({hour_end - timedelta(hours=h) for h in range(1, 25)} if grain == "hour" else set()))
     return {
         "stay": stay, "grain": grain, "as_of": clock,
         "buckets": [b.isoformat() for b in buckets if b <= clock],
         "rows": list(rows.values()),
+        "vitals": [v for v in vitals.values() if v["cells"]],
     }
 
 
@@ -181,6 +189,19 @@ def _event_view(r: dict, clock: datetime) -> dict:
         "order": r["linkorderid"], "weight_kg": r["patientweight"],
         "bag": [{**b, "amount": None} for b in r["bag"]] if running else r["bag"],
     }
+
+
+@app.get("/api/stays/{stay_id}/vitals/cell")
+def vital_cell(stay_id: int, vital: str, bucket: datetime, grain: str = "hour", as_of: datetime | None = None) -> dict:
+    """Drill-down for one vitals cell: every reading in the bucket up to the pump clock."""
+    if grain not in GRAINS or vital not in VITALS:
+        raise HTTPException(422, f"grain must be one of {sorted(GRAINS)}, vital one of {sorted(VITALS)}")
+    clock = _as_of(_stay(stay_id), as_of)
+    readings = store().vital_readings(stay_id, vital, grain, bucket.replace(tzinfo=None), clock)
+    label, unit, _ = VITALS[vital]
+    return {"vital": vital, "label": label, "unit": unit, "bucket": bucket.replace(tzinfo=None), "as_of": clock,
+            "readings": [{**r, "storetime": r["storetime"] if r["storetime"] and r["storetime"] <= clock else None}
+                         for r in readings]}
 
 
 @app.get("/api/stays/{stay_id}/cell")
@@ -234,6 +255,11 @@ def _safety(stay_id: int, as_of: datetime | None) -> dict:
         "flags": [_flag_view(f, idx, False) for f in evaluate_flags(idx, rules(), aware_dt)],
         "blocked": [_flag_view(f, idx, True) for f in blocked_medications(idx, rules(), aware_dt)],
         "labs": list(latest.values()),
+        "vitals": sorted(
+            ({**v, "name": VITALS[v["vital"]][0], "unit": VITALS[v["vital"]][1]}
+             for v in store().vitals_latest(stay_id, clock)),
+            key=lambda v: list(VITALS).index(v["vital"]),
+        ),
         "rules_version": rules()["schema_version"],
         "rules_provenance": rules()["provenance"],
     }

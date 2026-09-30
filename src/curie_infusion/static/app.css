@@ -90,3 +90,9 @@ nav.pages { display: flex; gap: 4px; margin-left: 12px; }
 nav.pages a { color: var(--muted); text-decoration: none; padding: 3px 10px; border-radius: 6px; font-size: 13px; }
 nav.pages a.on { background: var(--cell); color: var(--ink); font-weight: 600; }
 nav.pages a:hover { color: var(--ink); }
+td.vt { cursor: pointer; color: var(--ink); }
+td.vt:hover, td.vt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+td.vt.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+table.readings { width: 100%; }
+table.readings th { color: var(--muted); font-weight: 600; }
+table.readings td.l, table.readings th.l { text-align: left; }

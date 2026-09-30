@@ -9,7 +9,7 @@
 | `rules.py` | Evaluate deterministic rules against targets and return `SafetyFlag`s with evidence and a citation. |
 | `rulesets/*.json` | Versioned rule data. Changing it does not require a code change. |
 | `cli.py` | `curie-infusion evaluate`: Bundle + `as_of` → JSON safety state; `mimic-build`; `serve`. |
-| `mimic/store.py` | Build the Parquet store from MIMIC-IV 3.1 CSVs (DuckDB); per-stay queries; the hour/day/week grid. |
+| `mimic/store.py` | Build the Parquet store from MIMIC-IV 3.1 CSVs (DuckDB): infusions, labs, DRGs, and vitals from `chartevents` (itemids grouped in `VITALS`, implausible values dropped, °C → °F); per-stay queries; the hour/day/week grid. |
 | `mimic/fhir_adapter.py` | MIMIC rows → the FHIR Bundle a live feed would have produced by `as_of`. |
 | `summary.py` | Local LM Studio summary of existing flags, with one-to-one output validation and a rule-text fallback. |
 | `billing/prices.py` | Read CMS price files: Part B ASP payment limits; OPPS Addendum B rates (user-downloaded). |
@@ -23,7 +23,7 @@ store and the app need the `[app]` extra (DuckDB, FastAPI, uvicorn).
 ## App data flow
 
 ```
-MIMIC-IV 3.1 CSV ─(mimic-build, once)─► data/mimic/{stays,inputevents,labs}.parquet
+MIMIC-IV 3.1 CSV ─(mimic-build, once)─► data/mimic/{stays,inputevents,labs,drgcodes,vitals}.parquet
                                               │
             ┌─────────────────────────────────┼──────────────────────────────────┐
             ▼                                 ▼                                  ▼

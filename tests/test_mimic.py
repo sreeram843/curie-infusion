@@ -101,3 +101,27 @@ def test_cell_events_respect_the_replay_clock(store):
 def test_cell_events_list_the_rest_of_the_bag(store):
     [ev] = store.cell_events(101, 225166, "hour", at("11:00"), at("23:00"))
     assert [(b["label"], b["amount"], b["rate"]) for b in ev["bag"]] == [("NaCl 0.9%", 100, 50)]
+
+
+def test_vitals_are_cleaned_and_normalized(store):
+    cells = {(c["vital"], c["bucket"].hour): c for c in store.vitals_grid(101, "hour", at("08:00"), at("23:00"))}
+    hr = cells[("hr", 10)]
+    assert (hr["median"], hr["min"], hr["max"], hr["n"], hr["last"]) == (85, 80, 90, 2, 90)  # 9999 dropped
+    assert cells[("temp", 10)]["median"] == pytest.approx(98.6)  # 37 °C
+    assert cells[("sbp", 10)]["median"] == 120
+
+
+def test_vitals_grid_stops_at_the_clock(store):
+    cells = store.vitals_grid(101, "hour", at("08:00"), at("10:20"))
+    assert {c["vital"]: c["n"] for c in cells} == {"hr": 1, "sbp": 1, "temp": 1}
+
+
+def test_latest_vitals_use_charting_time(store):
+    # The 130 bpm drawn at 11:50 is not charted until 12:30.
+    assert {v["vital"]: v["value"] for v in store.vitals_latest(101, at("12:00"))}["hr"] == 90
+    assert {v["vital"]: v["value"] for v in store.vitals_latest(101, at("12:30"))}["hr"] == 130
+
+
+def test_vital_readings_for_a_cell(store):
+    rows = store.vital_readings(101, "hr", "hour", at("10:00"), at("23:00"))
+    assert [(r["value"], r["label"]) for r in rows] == [(80, "Heart Rate"), (90, "Heart Rate")]

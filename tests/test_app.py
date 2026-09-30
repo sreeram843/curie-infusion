@@ -95,3 +95,19 @@ def test_billing_page_and_endpoint(client, tmp_path, monkeypatch):
     assert by_code[("96365", "administration")]["status"] == "units_only"
     assert b["totals"]["drugs"] == pytest.approx(1.3 + 4.8)
     assert b["sources"]["opps"] is None and b["drg"][0]["drg_code"] in {"871", "720"}
+
+
+def test_vitals_in_grid_safety_and_drilldown(client):
+    g = client.get("/api/stays/101/grid", params={"grain": "hour", "as_of": "2150-01-01T12:00:00"}).json()
+    hr = next(v for v in g["vitals"] if v["vital"] == "hr")
+    assert hr["label"] == "Heart rate" and hr["cells"]["2150-01-01T10:00:00"]["median"] == 85
+    assert hr["cells"]["2150-01-01T11:00:00"]["n"] == 1
+
+    s = client.get("/api/stays/101/safety", params={"as_of": "2150-01-01T12:00:00"}).json()
+    assert [v["vital"] for v in s["vitals"]] == ["hr", "sbp", "temp"]
+    assert s["vitals"][0]["value"] == 90  # the 11:50 reading is not charted until 12:30
+
+    d = client.get("/api/stays/101/vitals/cell", params={
+        "vital": "hr", "bucket": "2150-01-01T10:00:00", "grain": "hour", "as_of": "2150-01-01T12:00:00"}).json()
+    assert [r["value"] for r in d["readings"]] == [80, 90]
+    assert client.get("/api/stays/101/vitals/cell", params={"vital": "bmi", "bucket": "2150-01-01T10:00:00"}).status_code == 422

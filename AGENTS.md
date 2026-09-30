@@ -16,7 +16,7 @@ uv venv && uv pip install -e ".[dev]"
 
 # MIMIC-IV app (needs the [app] extra and a local MIMIC-IV 3.1 copy)
 uv pip install -e ".[app,dev]"
-.venv/bin/curie-infusion mimic-build /path/to/mimiciv/3.1   # -> data/mimic/*.parquet (~30 s)
+.venv/bin/curie-infusion mimic-build /path/to/mimiciv/3.1   # -> data/mimic/*.parquet (minutes: vitals scan chartevents)
 .venv/bin/curie-infusion serve                               # http://127.0.0.1:8765
 ```
 

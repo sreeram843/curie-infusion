@@ -26,6 +26,21 @@ LAB_ITEMS = {
 
 GRAINS = {"hour": "1 hour", "day": "1 day", "week": "1 week"}
 
+# icu/d_items itemid -> vital. Arterial-line and cuff pressures share a vital; the label keeps the source.
+VITALS = {
+    "hr": ("Heart rate", "bpm", [220045]),
+    "sbp": ("Systolic BP", "mmHg", [220050, 220179, 225309]),
+    "dbp": ("Diastolic BP", "mmHg", [220051, 220180, 225310]),
+    "map": ("Mean arterial pressure", "mmHg", [220052, 220181, 225312]),
+    "rr": ("Respiratory rate", "insp/min", [220210, 224690]),
+    "spo2": ("SpO2", "%", [220277]),
+    "temp": ("Temperature", "°F", [223761, 223762]),
+}
+# Physiologically impossible values (charting errors such as 9999) are dropped at build time.
+# These are plausibility bounds, not clinical normal ranges.
+PLAUSIBLE = {"hr": (0, 300), "sbp": (0, 300), "dbp": (0, 250), "map": (0, 300), "rr": (0, 100),
+             "spo2": (0, 100), "temp": (77, 113)}
+
 
 def build_store(source: Path, out: Path) -> None:
     """Write stays, inputevents and labs Parquet files from a MIMIC-IV 3.1 directory."""
@@ -82,6 +97,31 @@ def build_store(source: Path, out: Path) -> None:
             ORDER BY hadm_id
         ) TO '{out}/drgcodes.parquet' (FORMAT parquet)
     """)
+    build_vitals(source, out)
+
+
+def build_vitals(source: Path, out: Path) -> None:
+    """Vital signs from icu/chartevents (3.5 GB gzipped; the slowest step). Celsius -> Fahrenheit."""
+    con = duckdb.connect()
+    con.execute("SET preserve_insertion_order = false")
+    cases = " ".join(f"WHEN itemid IN ({', '.join(map(str, ids))}) THEN '{key}'" for key, (_, _, ids) in VITALS.items())
+    bounds = " OR ".join(f"(vital = '{k}' AND value BETWEEN {lo} AND {hi})" for k, (lo, hi) in PLAUSIBLE.items())
+    ids = ", ".join(str(i) for _, _, v in VITALS.values() for i in v)
+    con.execute(f"""
+        COPY (
+            WITH raw AS (
+                SELECT ce.stay_id, ce.charttime, ce.storetime, ce.itemid, di.label,
+                       CASE {cases} END AS vital,
+                       CASE WHEN ce.itemid = 223762 THEN ce.valuenum * 9 / 5 + 32 ELSE ce.valuenum END AS value
+                FROM read_csv('{source}/icu/chartevents.csv.gz',
+                              types={{'value': 'VARCHAR', 'valueuom': 'VARCHAR', 'warning': 'VARCHAR'}}) ce
+                JOIN read_csv('{source}/icu/d_items.csv.gz') di USING (itemid)
+                WHERE ce.itemid IN ({ids}) AND ce.valuenum IS NOT NULL AND ce.stay_id IS NOT NULL
+            )
+            SELECT * FROM raw WHERE {bounds}
+            ORDER BY stay_id, charttime
+        ) TO '{out}/vitals.parquet' (FORMAT parquet, ROW_GROUP_SIZE 100000)
+    """)
 
 
 class MimicStore:
@@ -90,7 +130,7 @@ class MimicStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.con = duckdb.connect()
-        for name in ("stays", "inputevents", "labs", "drgcodes"):
+        for name in ("stays", "inputevents", "labs", "drgcodes", "vitals"):
             self.con.execute(f"CREATE VIEW {name} AS SELECT * FROM '{self.root / name}.parquet'")
 
     def _rows(self, sql: str, params: list | dict) -> list[dict]:
@@ -269,3 +309,51 @@ class MimicStore:
 
     def drg(self, hadm_id: int) -> list[dict]:
         return self._rows("SELECT * FROM drgcodes WHERE hadm_id = ? ORDER BY drg_type", [hadm_id])
+
+    def vitals_grid(self, stay_id: int, grain: str, start: datetime, end: datetime) -> list[dict]:
+        """Median / min / max / last / count of each vital per bucket, readings up to `end`."""
+        if grain not in GRAINS:
+            raise ValueError(f"grain must be one of {sorted(GRAINS)}")
+        step = GRAINS[grain]
+        return self._rows(
+            f"""
+            SELECT vital, time_bucket(INTERVAL {step}, charttime) AS bucket,
+                   median(value) AS median, min(value) AS min, max(value) AS max,
+                   arg_max(value, charttime) AS last, count(*) AS n
+            FROM vitals
+            WHERE stay_id = $stay AND charttime <= $end
+              AND charttime >= time_bucket(INTERVAL {step}, $start::TIMESTAMP)
+            GROUP BY ALL ORDER BY vital, bucket
+            """,
+            {"stay": stay_id, "start": start, "end": end},
+        )
+
+    def vitals_latest(self, stay_id: int, as_of: datetime) -> list[dict]:
+        """Latest reading of each vital that had been charted (stored) by as_of."""
+        return self._rows(
+            """
+            SELECT vital, arg_max(value, charttime) AS value, max(charttime) AS charttime,
+                   arg_max(label, charttime) AS label
+            FROM vitals
+            WHERE stay_id = ? AND charttime <= ? AND coalesce(storetime, charttime) <= ?
+              AND charttime >= ?::TIMESTAMP - INTERVAL 24 hour
+            GROUP BY vital
+            """,
+            [stay_id, as_of, as_of, as_of],
+        )
+
+    def vital_readings(
+        self, stay_id: int, vital: str, grain: str, bucket: datetime, end: datetime
+    ) -> list[dict]:
+        if grain not in GRAINS:
+            raise ValueError(f"grain must be one of {sorted(GRAINS)}")
+        return self._rows(
+            f"""
+            SELECT charttime, storetime, value, label, itemid FROM vitals
+            WHERE stay_id = $stay AND vital = $vital AND charttime <= $end
+              AND charttime >= $bucket::TIMESTAMP
+              AND charttime < $bucket::TIMESTAMP + INTERVAL {GRAINS[grain]}
+            ORDER BY charttime
+            """,
+            {"stay": stay_id, "vital": vital, "bucket": bucket, "end": end},
+        )
