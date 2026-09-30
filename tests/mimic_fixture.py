@@ -16,9 +16,11 @@ FILES = {
 225166,Potassium Chloride,KCL,inputevents,Medications,mEq,Solution,,
 225855,Ceftriaxone,Ceftriaxone,inputevents,Antibiotics,dose,Solution,,
 221456,Calcium Gluconate,Calcium Gluconate,inputevents,Medications,grams,Solution,,
+225158,NaCl 0.9%,NaCl 0.9%,inputevents,Fluids/Intake,mL,Solution,,
 """,
     "icu/inputevents.csv.gz": """subject_id,hadm_id,stay_id,caregiver_id,starttime,endtime,storetime,itemid,amount,amountuom,rate,rateuom,orderid,linkorderid,ordercategoryname,secondaryordercategoryname,ordercomponenttypedescription,ordercategorydescription,patientweight,totalamount,totalamountuom,isopenbag,continueinnextdept,statusdescription,originalamount,originalrate
 1,11,101,9,2150-01-01 10:30:00,2150-01-01 12:30:00,2150-01-01 10:31:00,225166,20,mEq,50,mL/hour,1,1,02-Fluids,,Main order parameter,Continuous Med,80,100,mL,0,0,FinishedRunning,20,50
+1,11,101,9,2150-01-01 10:30:00,2150-01-01 12:30:00,2150-01-01 10:31:00,225158,100,mL,50,mL/hour,1,1,02-Fluids,,Mixed solution,Continuous Med,80,100,mL,0,0,FinishedRunning,100,50
 1,11,101,9,2150-01-01 11:10:00,2150-01-01 11:11:00,2150-01-01 11:12:00,221456,2,grams,,,2,2,05-Med,,Main order parameter,Drug Push,80,100,mL,0,0,FinishedRunning,2,2
 1,11,101,9,2150-01-01 20:00:00,2150-01-01 21:00:00,2150-01-01 20:01:00,225855,1,dose,,,3,3,08-Antibiotics,,Main order parameter,Continuous Med,80,50,mL,0,0,FinishedRunning,1,50
 """,

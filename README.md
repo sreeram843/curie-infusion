@@ -25,7 +25,11 @@ raised, and its output is rejected unless it matches those flags one-to-one.
 A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were streaming into it:
 
 - **Grid** of every infusion and medication given, per drug, by **hour, day, or week**.
-- **Pump clock** you can step or replay; nothing after it is shown or used.
+- **Click any cell** to see the charted events behind it: start/end, rate, how much of each event fell
+  in that hour/day/week, the rest of the same bag (e.g. the carrier fluid of an additive), order,
+  weight, and charting delay. Shares always sum to the cell value.
+- **Pump clock** you can step or replay; nothing after it is shown or used (a drip still running at
+  the clock shows "running" and the amount delivered so far, not its eventual end or total).
 - **Current-hour safety panel:** flags on what is running, a **"do not start"** list checked against
   current labs, the latest available labs, and a plain-language **AI summary** from a local
   LM Studio model.

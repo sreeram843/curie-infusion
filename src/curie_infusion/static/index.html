@@ -49,6 +49,25 @@
   tr.cat td { background: var(--bg); color: var(--muted); font-weight: 600; text-align: left; }
   td.v { background: var(--cell); }
   td.v.hi { background: var(--cell-strong); }
+  td.v { cursor: pointer; }
+  td.v:hover, td.v:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  td.v.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+  dialog#detail { position: fixed; inset: 0 0 0 auto; margin: 0; height: 100vh; max-height: 100vh; width: min(460px, 100vw);
+    border: 0; border-left: 1px solid var(--line); padding: 0; background: var(--panel); color: var(--ink); box-shadow: -8px 0 24px rgba(0,0,0,.12); }
+  dialog#detail::backdrop { background: rgba(0,0,0,.15); }
+  .d-head { position: sticky; top: 0; background: var(--panel); padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  .d-head h3 { margin: 0 0 2px; font-size: 16px; }
+  .d-head .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+  .d-total { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .d-body { padding: 12px 16px 24px; }
+  .ev { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .ev-time { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ev dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 8px 0 0; font-size: 12.5px; }
+  .ev dt { color: var(--muted); }
+  .ev dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .share { height: 4px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .share > span { display: block; height: 100%; background: var(--accent); }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; background: var(--info-bg); color: var(--info); margin-left: 6px; font-weight: 500; }
   th.now, td.now { box-shadow: inset 2px 0 var(--accent), inset -2px 0 var(--accent); }
   .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
   section.safety { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; }
@@ -106,9 +125,10 @@
     <p class="empty">Current-hour safety appears here.</p>
   </section>
 </div>
+<dialog id="detail" aria-labelledby="d-title"></dialog>
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0 };
+const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0, sel: null };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const iso = (d) => d.toISOString().slice(0, 16);   // naive UTC minutes, the MIMIC convention
 const parse = (s) => new Date(s.slice(0, 16) + "Z");
@@ -184,8 +204,10 @@ function renderGrid(g) {
       g.buckets.map((b, i) => {
         const c = r.cells[b];
         const cls = [b === nowBucket ? "now" : "", c ? "v" : "", c && vals[i] >= max * 0.66 ? "hi" : ""].join(" ");
-        const tip = c?.max_rate != null ? `max rate ${fmt(c.max_rate)} ${c.rate_unit}` : "";
-        return `<td class="${cls}" title="${esc(tip)}">${c ? fmt(c.amount) : ""}</td>`;
+        if (!c) return `<td class="${cls}"></td>`;
+        const tip = `${r.label}: ${fmt(c.amount)} ${r.unit}${c.max_rate != null ? ` · max rate ${fmt(c.max_rate)} ${c.rate_unit}` : ""} · click for details`;
+        const sel = state.sel && state.sel.itemid === r.itemid && state.sel.bucket === b ? " sel" : "";
+        return `<td class="${cls}${sel}" tabindex="0" role="button" data-item="${r.itemid}" data-bucket="${b}" title="${esc(tip)}">${fmt(c.amount)}</td>`;
       }).join("")}<td><b>${fmt(total)}</b></td></tr>`;
   }
   if (!g.rows.length) body = `<tr><td class="drug empty" colspan="${g.buckets.length + 2}">Nothing charted in this window.</td></tr>`;
@@ -228,12 +250,64 @@ function renderSummary(ai) {
     : ai.error ? `Rule text shown (${ai.error})` : "From the rule engine";
 }
 
+const DUR = { hour: 3600e3, day: 86400e3, week: 7 * 86400e3 };
+const when = (s) => { const d = parse(String(s)); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
+const span = (a, b) => { const m = Math.round((parse(String(b)) - parse(String(a))) / 60e3); return m < 60 ? `${m} min` : `${(m / 60).toFixed(m % 60 ? 1 : 0)} h`; };
+
+async function openCell(itemid, bucket) {
+  state.sel = { itemid, bucket };
+  document.querySelectorAll("td.v.sel").forEach((el) => el.classList.remove("sel"));
+  document.querySelector(`td.v[data-item="${itemid}"][data-bucket="${bucket}"]`)?.classList.add("sel");
+  const dlg = $("#detail");
+  dlg.innerHTML = `<div class="d-body"><p class="empty">Loading…</p></div>`;
+  if (!dlg.open) dlg.showModal();
+  const q = new URLSearchParams({ itemid, bucket, grain: state.grain, as_of: iso(state.clock) });
+  const d = await api(`/api/stays/${state.stay.stay_id}/cell?${q}`);
+  const end = d.bucket_end ?? new Date(+parse(bucket) + DUR[state.grain]).toISOString();
+  const label = state.grain === "hour" ? `${when(bucket)} – ${when(end).slice(-5)}` : `${when(bucket).slice(0, -6)} – ${when(new Date(+parse(String(end)) - 1).toISOString()).slice(0, -6)}`;
+  const cards = d.events.map((e) => {
+    const pct = e.amount ? Math.min(100, (100 * e.in_bucket) / e.amount) : 0;
+    const bag = e.bag.length ? e.bag.map((b) => `${esc(b.label)}${b.amount != null ? ` ${fmt(b.amount)} ${esc(b.unit)}` : ""}${b.rate != null ? ` @ ${fmt(b.rate)} ${esc(b.rate_unit)}` : ""}`).join("<br>") : "";
+    const late = e.charted_at ? Math.round((parse(String(e.charted_at)) - parse(String(e.start))) / 60e3) : null;
+    return `<div class="ev">
+      <div class="ev-time">${when(e.start)} → ${e.running ? `running <span class="muted">(${span(e.start, d.as_of)} so far)</span>` : `${when(e.end)} <span class="muted">(${span(e.start, e.end)})</span>`}
+        <span class="tag">${esc(e.status)}</span></div>
+      <dl>
+        <dt>In this ${state.grain}</dt><dd><b>${fmt(e.in_bucket)} ${esc(e.unit)}</b> <span class="muted">of ${fmt(e.amount)} ${esc(e.unit)} ${e.running ? "delivered so far" : "charted"} (${pct.toFixed(0)}%)</span></dd>
+        <dt>Rate</dt><dd>${e.rate != null ? `${fmt(e.rate)} ${esc(e.rate_unit)}` : '<span class="muted">none charted (bolus or additive)</span>'}</dd>
+        <dt>Type</dt><dd>${esc(e.kind)}${e.component ? ` · ${esc(e.component)}` : ""}</dd>
+        ${bag ? `<dt>Same bag</dt><dd>${bag}</dd>` : ""}
+        <dt>Order</dt><dd>#${esc(e.order)}</dd>
+        ${e.weight_kg ? `<dt>Weight</dt><dd>${fmt(e.weight_kg)} kg</dd>` : ""}
+        ${late != null ? `<dt>Charted</dt><dd>${when(e.charted_at)} <span class="muted">(${late >= 0 ? `${late} min after start` : `${-late} min before start`})</span></dd>` : ""}
+      </dl>
+      <div class="share" title="Share of this event delivered in this ${state.grain}"><span style="width:${pct}%"></span></div>
+    </div>`;
+  }).join("") || `<p class="empty">No charted events in this ${state.grain}.</p>`;
+  dlg.innerHTML = `
+    <div class="d-head">
+      <div class="row" style="margin-top:0"><span class="muted">${esc(d.category ?? "")}</span><button id="d-close" aria-label="Close">✕</button></div>
+      <h3 id="d-title">${esc(d.label)}</h3>
+      <div class="muted">${label}</div>
+      <div class="row"><span class="d-total">${fmt(d.total)} <span class="muted" style="font-size:14px">${esc(d.unit ?? "")}</span></span>
+        <button id="d-jump" title="Move the pump clock to the end of this ${state.grain}">Set pump clock here</button></div>
+      <div class="muted" style="font-size:12px">${d.events.length} charted event${d.events.length === 1 ? "" : "s"} · shares sum to the cell value</div>
+    </div>
+    <div class="d-body">${cards}</div>`;
+  $("#d-close").onclick = () => dlg.close();
+  $("#d-jump").onclick = () => { dlg.close(); setClock(parse(String(end))); };
+}
+
+$("#grid").addEventListener("click", (e) => { const td = e.target.closest("td.v"); if (td) openCell(+td.dataset.item, td.dataset.bucket); });
+$("#grid").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("td.v")) { e.preventDefault(); e.target.click(); } });
+$("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") e.target.close(); });
+
 $("#stays").addEventListener("click", (e) => { const el = e.target.closest(".stay"); if (el) selectStay(+el.dataset.id); });
 let debounce;
 $("#q").addEventListener("input", (e) => { clearTimeout(debounce); debounce = setTimeout(() => loadStays(e.target.value.trim()), 250); });
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
-  state.grain = b.dataset.grain; refresh();
+  state.grain = b.dataset.grain; state.sel = null; refresh();
 }));
 $("#back").onclick = () => setClock(new Date(+state.clock - 3600e3));
 $("#fwd").onclick = () => setClock(new Date(+state.clock + 3600e3));

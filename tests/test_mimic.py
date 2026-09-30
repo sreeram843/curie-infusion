@@ -22,7 +22,7 @@ def at(hhmm: str, day: int = 1) -> datetime:
 
 def test_store_lists_only_stays_with_infusions(store):
     assert [s["stay_id"] for s in store.stays()] == [101]
-    assert store.stay(101)["n_infusion_rows"] == 3
+    assert store.stay(101)["n_infusion_rows"] == 4
     assert store.stay(999) is None
 
 
@@ -59,7 +59,7 @@ def bundle_at(store, clock):
 
 def test_bundle_shows_only_what_had_happened(store):
     idx = bundle_at(store, at("11:00"))
-    [ma] = idx.of("MedicationAdministration")
+    [ma] = [m for m in idx.of("MedicationAdministration") if idx.drug_label(m) == "Potassium Chloride"]
     assert ma["status"] == "in-progress"
     assert "end" not in ma["effectivePeriod"]  # a live feed would not know the end yet
     assert ma["effectivePeriod"]["start"].endswith("+00:00")
@@ -82,3 +82,22 @@ def test_lab_not_yet_stored_is_not_used(store):
     flags = evaluate_flags(bundle_at(store, clock), load_rules(), clock.replace(tzinfo=UTC))
     [flag] = [f for f in flags if f.rule_id == "physio-hyperkalemia-potassium-chloride"]
     assert "6.2" in flag.evidence[0]["detail"]
+
+
+def test_cell_events_explain_a_grid_cell(store):
+    [ev] = store.cell_events(101, 225166, "hour", at("11:00"), at("23:00"))
+    assert ev["in_bucket"] == pytest.approx(10)  # half of the 20 mEq 10:30-12:30 drip
+    assert (ev["amount"], ev["rate"], ev["rateuom"]) == (pytest.approx(20), pytest.approx(50), "mL/hour")
+    assert ev["statusdescription"] == "FinishedRunning"
+    assert ev["bucket_end"] == at("12:00")
+
+
+def test_cell_events_respect_the_replay_clock(store):
+    [ev] = store.cell_events(101, 225166, "hour", at("11:00"), at("11:30"))
+    assert ev["in_bucket"] == pytest.approx(5)
+    assert store.cell_events(101, 225855, "hour", at("11:00"), at("23:00")) == []
+
+
+def test_cell_events_list_the_rest_of_the_bag(store):
+    [ev] = store.cell_events(101, 225166, "hour", at("11:00"), at("23:00"))
+    assert [(b["label"], b["amount"], b["rate"]) for b in ev["bag"]] == [("NaCl 0.9%", 100, 50)]

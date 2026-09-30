@@ -102,6 +102,14 @@ class MimicStore:
         rows = self._rows("SELECT * FROM stays WHERE stay_id = ?", [stay_id])
         return rows[0] if rows else None
 
+    def item(self, stay_id: int, itemid: int) -> dict | None:
+        """Label/category of an item as charted in this stay (stay-scoped so row groups are skipped)."""
+        rows = self._rows(
+            "SELECT itemid, label, category FROM inputevents WHERE stay_id = ? AND itemid = ? LIMIT 1",
+            [stay_id, itemid],
+        )
+        return rows[0] if rows else None
+
     def infusions(
         self, stay_id: int, until: datetime | None = None, since: datetime | None = None
     ) -> list[dict]:
@@ -160,3 +168,48 @@ class MimicStore:
             """,
             {"stay": stay_id, "start": start, "end": end},
         )
+
+    def cell_events(
+        self, stay_id: int, itemid: int, grain: str, bucket: datetime, end: datetime
+    ) -> list[dict]:
+        """The charted rows behind one grid cell, each with its share (`in_bucket`) of the cell.
+
+        Same overlap arithmetic as `grid`, so the shares sum to the cell's amount.
+        """
+        if grain not in GRAINS:
+            raise ValueError(f"grain must be one of {sorted(GRAINS)}")
+        rows = self._rows(
+            f"""
+            WITH b AS (SELECT $bucket::TIMESTAMP AS bstart,
+                              $bucket::TIMESTAMP + INTERVAL {GRAINS[grain]} AS bend),
+            ev AS (
+                SELECT *, greatest(endtime, starttime + INTERVAL 1 minute) AS eff_end
+                FROM inputevents
+                WHERE stay_id = $stay AND itemid = $item AND amount IS NOT NULL
+            )
+            SELECT starttime, endtime, amount, amountuom, rate, rateuom, orderid, linkorderid,
+                   ordercategorydescription, ordercomponenttypedescription, statusdescription,
+                   patientweight, storetime, bstart AS bucket, bend AS bucket_end,
+                   amount * epoch(least(eff_end, bend, $end::TIMESTAMP) - greatest(starttime, bstart))
+                       / epoch(eff_end - starttime) AS in_bucket
+            FROM ev, b
+            WHERE starttime < bend AND eff_end > bstart
+              AND least(eff_end, bend, $end::TIMESTAMP) > greatest(starttime, bstart)
+            ORDER BY starttime
+            """,
+            {"stay": stay_id, "item": itemid, "bucket": bucket, "end": end},
+        )
+        # Everything else charted under the same order: the carrier fluid of an additive, etc.
+        bag: dict[int, list[dict]] = {}
+        if orders := sorted({r["orderid"] for r in rows}):
+            for b in self._rows(
+                f"""SELECT orderid, label, amount, amountuom AS unit, rate, rateuom AS rate_unit
+                    FROM inputevents WHERE stay_id = ? AND itemid <> ?
+                      AND orderid IN ({", ".join("?" * len(orders))})
+                    ORDER BY label""",
+                [stay_id, itemid, *orders],
+            ):
+                bag.setdefault(b.pop("orderid"), []).append(b)
+        for r in rows:
+            r["bag"] = bag.get(r["orderid"], [])
+        return rows

@@ -79,7 +79,7 @@ def grid(stay_id: int, grain: str = "hour", as_of: datetime | None = None) -> di
 
     rows: dict[tuple, dict] = {}
     for c in cells:
-        row = rows.setdefault((c["category"], c["label"], c["unit"]), {
+        row = rows.setdefault((c["category"], c["label"], c["unit"], c["itemid"]), {
             "itemid": c["itemid"], "label": c["label"], "category": c["category"],
             "unit": c["unit"], "continuous": False, "cells": {},
         })
@@ -92,6 +92,52 @@ def grid(stay_id: int, grain: str = "hour", as_of: datetime | None = None) -> di
         "stay": stay, "grain": grain, "as_of": clock,
         "buckets": [b.isoformat() for b in buckets if b <= clock],
         "rows": list(rows.values()),
+    }
+
+
+def _squash(text: str | None) -> str | None:
+    """MIMIC pads some descriptions with runs of spaces."""
+    return " ".join(text.split()) if text else text
+
+
+def _event_view(r: dict, clock: datetime) -> dict:
+    """One charted event as known at the pump clock. A running event hides its end, final total,
+    end status and bag totals: a live feed would not know them yet."""
+    running = r["endtime"] > clock
+    amount = r["amount"]
+    if running:
+        full = max((r["endtime"] - r["starttime"]).total_seconds(), 60)
+        amount = amount * (clock - r["starttime"]).total_seconds() / full
+    return {
+        "start": r["starttime"], "end": None if running else r["endtime"], "running": running,
+        "charted_at": r["storetime"] if r["storetime"] and r["storetime"] <= clock else None,
+        "amount": amount, "unit": r["amountuom"], "in_bucket": r["in_bucket"],
+        "rate": r["rate"], "rate_unit": r["rateuom"], "kind": r["ordercategorydescription"],
+        "component": _squash(r["ordercomponenttypedescription"]),
+        "status": "Running" if running else r["statusdescription"],
+        "order": r["linkorderid"], "weight_kg": r["patientweight"],
+        "bag": [{**b, "amount": None} for b in r["bag"]] if running else r["bag"],
+    }
+
+
+@app.get("/api/stays/{stay_id}/cell")
+def cell(stay_id: int, itemid: int, bucket: datetime, grain: str = "hour", as_of: datetime | None = None) -> dict:
+    """Drill-down for one grid cell: the charted events behind it and each one's share."""
+    if grain not in GRAINS:
+        raise HTTPException(422, f"grain must be one of {sorted(GRAINS)}")
+    stay = _stay(stay_id)
+    clock = _as_of(stay, as_of)
+    start = bucket.replace(tzinfo=None)
+    rows = store().cell_events(stay_id, itemid, grain, start, clock)
+    item = store().item(stay_id, itemid)
+    events = [_event_view(r, clock) for r in rows]
+    return {
+        "stay_id": stay_id, "itemid": itemid, "grain": grain, "as_of": clock,
+        "label": item["label"] if item else str(itemid), "category": item["category"] if item else None,
+        "unit": rows[0]["amountuom"] if rows else None,
+        "bucket": start, "bucket_end": rows[0]["bucket_end"] if rows else None,
+        "total": sum(e["in_bucket"] for e in events),
+        "events": events,
     }
 
 
