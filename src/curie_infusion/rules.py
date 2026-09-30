@@ -10,9 +10,9 @@ from itertools import combinations
 from pathlib import Path
 
 from .fhir import BundleIndex, Code, codings, has_status, key, line_of, parse_time
+from .ledger import EXCLUDED_STATUSES
 
 DEFAULT_RULES = "infusion_rules.v0.1.json"
-FINAL_OBS = {"final", "amended", "corrected"}
 OPERATORS = {
     ">": lambda v, t: v > t,
     ">=": lambda v, t: v >= t,
@@ -47,13 +47,22 @@ def _codes(items: list[dict]) -> set[Code]:
     return {(c["system"], c["code"]) for c in items}
 
 
+def running_at(ma: dict, as_of: datetime) -> bool:
+    """Its period covers as_of. Status alone is not enough: replayed history is all `completed`."""
+    if ma.get("status") in EXCLUDED_STATUSES:
+        return False
+    period = ma.get("effectivePeriod", {})
+    start, end = parse_time(period.get("start")), parse_time(period.get("end"))
+    if start is None or start > as_of:
+        return False
+    return end > as_of if end else ma.get("status") == "in-progress"
+
+
 def _targets(idx: BundleIndex, as_of: datetime) -> list[dict]:
-    """In-progress administrations at as_of, plus active orders not already running."""
+    """Administrations running at as_of, plus active orders not already running."""
     running, running_orders = [], set()
     for ma in idx.of("MedicationAdministration"):
-        period = ma.get("effectivePeriod", {})
-        start, end = parse_time(period.get("start")), parse_time(period.get("end"))
-        if ma.get("status") == "in-progress" and start and start <= as_of and (end is None or end > as_of):
+        if running_at(ma, as_of):
             running.append(ma)
             running_orders.add(ma.get("request", {}).get("reference"))
     pending = [
@@ -64,23 +73,10 @@ def _targets(idx: BundleIndex, as_of: datetime) -> list[dict]:
     return running + pending
 
 
-def _latest_observation(idx: BundleIndex, code: Code, as_of: datetime) -> dict | None:
-    """Latest final result for `code` that was available (issued) by as_of."""
-    best, best_time = None, None
-    for obs in idx.of("Observation"):
-        if obs.get("status") not in FINAL_OBS or code not in codings(obs.get("code")):
-            continue
-        effective = parse_time(obs.get("effectiveDateTime"))
-        available = parse_time(obs.get("issued")) or effective
-        if effective and available <= as_of and (best_time is None or effective > best_time):
-            best, best_time = obs, effective
-    return best
-
-
 def _observation_flag(rule: dict, target: dict, idx: BundleIndex, as_of: datetime) -> SafetyFlag | None:
     code = (rule["observation_code"]["system"], rule["observation_code"]["code"])
     base = dict(rule_id=rule["id"], kind="physiologic", targets=[key(target)], citation=rule["citation"])
-    obs = _latest_observation(idx, code, as_of)
+    obs = idx.latest_observation(code, as_of)
     if obs is None:
         return SafetyFlag(status=INSUFFICIENT, message=f"No available {code[1]} result to evaluate.", **base)
 
@@ -127,47 +123,83 @@ def _allergy_flags(target: dict, idx: BundleIndex) -> list[SafetyFlag]:
     return flags
 
 
-def _coinfusion_flags(targets: list[dict], rules: list[dict], idx: BundleIndex) -> list[SafetyFlag]:
+def _pair_flags(a: dict, b: dict, rules: list[dict], idx: BundleIndex) -> list[SafetyFlag]:
+    codes_a, codes_b = idx.drug_codes(a), idx.drug_codes(b)
     flags = []
-    for a, b in combinations(targets, 2):
-        codes_a, codes_b = idx.drug_codes(a), idx.drug_codes(b)
-        for rule in rules:
-            ra, rb = _codes(rule["drugs_a"]), _codes(rule["drugs_b"])
-            if not ((codes_a & ra and codes_b & rb) or (codes_a & rb and codes_b & ra)):
+    for rule in rules:
+        ra, rb = _codes(rule["drugs_a"]), _codes(rule["drugs_b"])
+        if not ((codes_a & ra and codes_b & rb) or (codes_a & rb and codes_b & ra)):
+            continue
+        status = DO_NOT_INFUSE
+        if rule["scope"] == "same_line":
+            line_a, line_b = line_of(a), line_of(b)
+            if line_a and line_b and line_a != line_b:
                 continue
-            status = DO_NOT_INFUSE
-            if rule["scope"] == "same_line":
-                line_a, line_b = line_of(a), line_of(b)
-                if line_a and line_b and line_a != line_b:
-                    continue
-                if not (line_a and line_b):
-                    status = REVIEW
-            flags.append(
-                SafetyFlag(
-                    rule_id=rule["id"], kind="coinfusion", status=status, targets=[key(a), key(b)],
-                    message=rule["message"], citation=rule["citation"],
-                    evidence=[{"reference": key(r), "detail": f"line={line_of(r) or 'unknown'}"} for r in (a, b)],
-                )
+            if not (line_a and line_b):
+                status = REVIEW
+        flags.append(
+            SafetyFlag(
+                rule_id=rule["id"], kind="coinfusion", status=status, targets=[key(a), key(b)],
+                message=rule["message"], citation=rule["citation"],
+                evidence=[{"reference": key(r), "detail": f"line={line_of(r) or 'unknown'}"} for r in (a, b)],
             )
+        )
     return flags
+
+
+def _target_flags(target: dict, idx: BundleIndex, rules: dict, as_of: datetime) -> list[SafetyFlag]:
+    drugs = idx.drug_codes(target)
+    flags: list[SafetyFlag] = []
+    for rule in rules["physiologic"]:
+        if not drugs & _codes(rule["drug_codes"]):
+            continue
+        if rule["kind"] == "observation_threshold":
+            flag = _observation_flag(rule, target, idx, as_of)
+        elif rule["kind"] == "condition_present":
+            flag = _condition_flag(rule, target, idx)
+        else:
+            raise ValueError(f"unknown rule kind: {rule['kind']}")
+        if flag:
+            flags.append(flag)
+    return flags + _allergy_flags(target, idx)
 
 
 def evaluate_flags(idx: BundleIndex, rules: dict, as_of: datetime) -> list[SafetyFlag]:
     targets = _targets(idx, as_of)
+    flags = [f for target in targets for f in _target_flags(target, idx, rules, as_of)]
+    for a, b in combinations(targets, 2):
+        flags.extend(_pair_flags(a, b, rules["coinfusion"], idx))
+    return flags
+
+
+def _rule_drug_codes(rules: dict) -> list[Code]:
+    codes: list[Code] = []
+    for rule in rules["physiologic"]:
+        codes += [(c["system"], c["code"]) for c in rule["drug_codes"]]
+    for rule in rules["coinfusion"]:
+        codes += [(c["system"], c["code"]) for c in rule["drugs_a"] + rule["drugs_b"]]
+    return list(dict.fromkeys(codes))
+
+
+def blocked_medications(idx: BundleIndex, rules: dict, as_of: datetime) -> list[SafetyFlag]:
+    """What not to start now: every drug the rule table knows, checked as if it were ordered.
+
+    Drugs already running or ordered are covered by `evaluate_flags` and skipped here. Targets are
+    `Hypothetical/<drug code>` so they can never be mistaken for a real order.
+    """
+    targets = _targets(idx, as_of)
+    present = set().union(*(idx.drug_codes(t) for t in targets)) if targets else set()
+    running = [t for t in targets if t["resourceType"] == "MedicationAdministration"]
     flags: list[SafetyFlag] = []
-    for target in targets:
-        drugs = idx.drug_codes(target)
-        for rule in rules["physiologic"]:
-            if not drugs & _codes(rule["drug_codes"]):
-                continue
-            if rule["kind"] == "observation_threshold":
-                flag = _observation_flag(rule, target, idx, as_of)
-            elif rule["kind"] == "condition_present":
-                flag = _condition_flag(rule, target, idx)
-            else:
-                raise ValueError(f"unknown rule kind: {rule['kind']}")
-            if flag:
-                flags.append(flag)
-        flags.extend(_allergy_flags(target, idx))
-    flags.extend(_coinfusion_flags(targets, rules["coinfusion"], idx))
+    for code in _rule_drug_codes(rules):
+        if code in present:
+            continue
+        hypo = {
+            "resourceType": "Hypothetical",
+            "id": code[1],
+            "medicationCodeableConcept": {"coding": [{"system": code[0], "code": code[1]}], "text": code[1]},
+        }
+        flags += _target_flags(hypo, idx, rules, as_of)
+        for other in running:
+            flags += _pair_flags(hypo, other, rules["coinfusion"], idx)
     return flags

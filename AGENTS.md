@@ -13,6 +13,11 @@ uv venv && uv pip install -e ".[dev]"
 .venv/bin/pytest            # unit + CLI tests, coverage gate 80%
 .venv/bin/ruff check .
 .venv/bin/curie-infusion evaluate fixtures/icu_bundle.json --as-of 2026-01-01T10:00:00+00:00
+
+# MIMIC-IV app (needs the [app] extra and a local MIMIC-IV 3.1 copy)
+uv pip install -e ".[app,dev]"
+.venv/bin/curie-infusion mimic-build /path/to/mimiciv/3.1   # -> data/mimic/*.parquet (~30 s)
+.venv/bin/curie-infusion serve                               # http://127.0.0.1:8765
 ```
 
 ## Non-negotiable safety rules
@@ -23,8 +28,14 @@ uv venv && uv pip install -e ".[dev]"
   It must never silently clear a rule.
 - Use only results that were available at `as_of`: `Observation.issued` if present, otherwise
   `effectiveDateTime`.
-- Synthetic data and synthetic drug codes only. Do not add real RxNorm codes or compatibility data
-  without a cited, verified source recorded next to the rule.
+- Rule drug codes stay synthetic. Do not add real RxNorm codes or compatibility data without a cited,
+  verified source recorded next to the rule. MIMIC item IDs map onto them in `mimic/fhir_adapter.py`.
+- MIMIC-IV 3.1 (credentialed, PhysioNet DUA) is approved for local use by the project owner
+  (2026-09-30). It stays on this machine: `data/` is gitignored, tests use invented rows in
+  `tests/mimic_fixture.py`, and the LLM is the local LM Studio server (`CURIE_LLM_URL`, default
+  `http://127.0.0.1:1234`). Never send MIMIC rows to a hosted LLM API.
+- The LLM summary only rewords flags already raised; `summary.validate` rejects any output whose
+  bullets do not match the flags one-to-one (action, drug, rule_id, and every stated number).
 - Never commit patient data, API keys, or licensed compatibility-database content.
 
 ## Workflow
@@ -34,5 +45,5 @@ add them to `src/curie_infusion/rulesets/` with a test, and bump the file versio
 
 ## Stop conditions
 
-Stop and ask before a change would: use real patient data, put an LLM on the flag path, import licensed
-drug-compatibility content, or claim clinical validity.
+Stop and ask before a change would: use patient data other than local MIMIC-IV, send data to a hosted
+LLM, put an LLM on the flag path, import licensed drug-compatibility content, or claim clinical validity.

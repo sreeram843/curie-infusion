@@ -8,6 +8,7 @@ from datetime import datetime
 LINE_EXT = "https://curie.local/fhir/StructureDefinition/infusion-line"
 
 Code = tuple[str, str]
+FINAL_OBS = {"final", "amended", "corrected"}
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -74,3 +75,15 @@ class BundleIndex:
         if concept.get("text"):
             return concept["text"]
         return next((c["code"] for c in concept.get("coding", []) if c.get("code")), "unknown")
+
+    def latest_observation(self, code: Code, as_of: datetime) -> dict | None:
+        """Latest final result for `code` that was available (issued) by as_of."""
+        best, best_time = None, None
+        for obs in self.of("Observation"):
+            if obs.get("status") not in FINAL_OBS or code not in codings(obs.get("code")):
+                continue
+            effective = parse_time(obs.get("effectiveDateTime"))
+            available = parse_time(obs.get("issued")) or effective
+            if effective and available <= as_of and (best_time is None or effective > best_time):
+                best, best_time = obs, effective
+        return best

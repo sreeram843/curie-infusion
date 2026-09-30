@@ -49,6 +49,7 @@ def admin(
     status: str | None = None,
     request_id: str | None = None,
     line: str | None = None,
+    dose: tuple | None = None,
 ) -> dict:
     ma = {
         "resourceType": "MedicationAdministration",
@@ -59,6 +60,8 @@ def admin(
     }
     if rate:
         ma["dosage"] = {"rateQuantity": {"value": rate[0], "unit": rate[1]}}
+    if dose:
+        ma["dosage"] = {"dose": {"value": dose[0], "unit": dose[1]}}
     if request_id:
         ma["request"] = {"reference": f"MedicationRequest/{request_id}"}
     if line:

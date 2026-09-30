@@ -8,9 +8,30 @@
 | `ledger.py` | Split administrations into segments, compute rate × time, group by parent order, reconcile orders against administrations. |
 | `rules.py` | Evaluate deterministic rules against targets and return `SafetyFlag`s with evidence and a citation. |
 | `rulesets/*.json` | Versioned rule data. Changing it does not require a code change. |
-| `cli.py` | `curie-infusion evaluate`: Bundle + `as_of` → JSON safety state. |
+| `cli.py` | `curie-infusion evaluate`: Bundle + `as_of` → JSON safety state; `mimic-build`; `serve`. |
+| `mimic/store.py` | Build the Parquet store from MIMIC-IV 3.1 CSVs (DuckDB); per-stay queries; the hour/day/week grid. |
+| `mimic/fhir_adapter.py` | MIMIC rows → the FHIR Bundle a live feed would have produced by `as_of`. |
+| `summary.py` | Local LM Studio summary of existing flags, with one-to-one output validation and a rule-text fallback. |
+| `app.py`, `static/index.html` | FastAPI endpoints and the single-page UI. |
 
-The core has no runtime dependencies (stdlib only).
+The engine core (`fhir`, `ledger`, `rules`) has no runtime dependencies (stdlib only). The MIMIC
+store and the app need the `[app]` extra (DuckDB, FastAPI, uvicorn).
+
+## App data flow
+
+```
+MIMIC-IV 3.1 CSV ─(mimic-build, once)─► data/mimic/{stays,inputevents,labs}.parquet
+                                              │
+            ┌─────────────────────────────────┼──────────────────────────────────┐
+            ▼                                 ▼                                  ▼
+  /grid: DuckDB spreads each row's    /safety: rows + labs up to as_of     /summary: flags from
+  charted amount over the hour/day/   ─► FHIR Bundle ─► evaluate_flags     /safety ─► LM Studio
+  week buckets it overlaps, up to     + blocked_medications                ─► validate ─► text
+  as_of (the pump clock)                                                   (or rule-text fallback)
+```
+
+Grid amounts use MIMIC's charted `amount`, not re-derived rate × time, so daily and weekly totals
+equal the charted totals exactly (checked in `tests/test_mimic.py`).
 
 ## Evaluation flow
 

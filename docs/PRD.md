@@ -63,10 +63,12 @@
 
 | Feature | Description | Priority | v0.1 |
 |---|---|---|---|
-| Real-time dose ledger | Cumulative totals from infusion `rate` over elapsed `effectivePeriod`. | P0 | ✅ `ledger.py` |
+| Real-time dose ledger | Cumulative totals from infusion `rate` over elapsed `effectivePeriod`. | P0 | ✅ `ledger.py` (incl. MIMIC units, weight-based, bolus) |
+| Hourly / daily / weekly grid | Per-patient amounts delivered per drug per time bucket. | P0 | ✅ v0.2 `mimic/store.py` + UI |
 | Co-infusion conflict matrix | Active drug codes checked against a drug-drug / Y-site incompatibility table. | P0 | ✅ engine; illustrative table only |
 | Physiological safety blocks | "Do Not Infuse" when current labs or diagnoses conflict. | P0 | ✅ labs, conditions, allergies |
-| AI contraindication summary | Natural-language explanation of why an infusion is flagged, citing data points. | P1 | not started |
+| "Do not start" list | Every drug in the rule table checked against current physiology, even if not ordered. | P0 | ✅ v0.2 `blocked_medications` |
+| AI contraindication summary | Natural-language explanation of why an infusion is flagged, citing data points. | P1 | ✅ v0.2 local LM Studio, validated |
 | Audit ledger export | Reports of infusions, titrations, and cleared flags for pharmacy audits. | P1 | JSON state only |
 
 ## 4. Technical architecture and FHIR mapping
@@ -128,7 +130,17 @@ These change or clarify the draft above so it matches how the other Curie projec
    `curie-audit-plane` rather than built again here.
 8. **TLS/AES and HIPAA** are deployment concerns, out of scope for the synthetic prototype.
 
-## 7. Non-goals for v0.1
+## 7. v0.2 scope changes (2026-09-30, approved by the project owner)
 
-UI/dashboard, live FHIR subscription, weight-based rates (`mcg/kg/min`), bolus doses, LLM summary,
-real drug codes, and any patient data.
+- **MIMIC-IV 3.1 is in scope** as the data source, used locally only. ICU `inputevents` is replayed
+  in time order to stand in for the pump feed; a `datetime` "pump clock" (`as_of`) hides everything
+  after it. Note: `inputevents` is nurse-verified charting, not raw pump telemetry.
+- **A lightweight UI is in scope:** FastAPI + one static HTML page (`curie-infusion serve`).
+- **The LLM summary runs on a local LM Studio server** so MIMIC data never leaves the machine.
+- **Weight-based rates and bolus doses** are now handled by the ledger.
+
+## 8. Non-goals for v0.2
+
+Live pump connectivity (the seam is FHIR `MedicationAdministration`; a PCD-01 gateway via `curie-fhir`
+would feed it), line/lumen data (MIMIC has none, so same-line rules return `review`), hospital-ward
+`emar` administrations, real drug codes, and any claim of clinical validity.

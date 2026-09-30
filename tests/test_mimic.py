@@ -1,0 +1,84 @@
+from datetime import UTC, datetime
+
+import pytest
+from mimic_fixture import write_mimic
+
+from curie_infusion.fhir import BundleIndex
+from curie_infusion.mimic.fhir_adapter import build_bundle
+from curie_infusion.mimic.store import MimicStore, build_store
+from curie_infusion.rules import evaluate_flags, load_rules
+
+
+@pytest.fixture(scope="module")
+def store(tmp_path_factory):
+    root = tmp_path_factory.mktemp("mimic")
+    build_store(write_mimic(root / "src"), root / "store")
+    return MimicStore(root / "store")
+
+
+def at(hhmm: str, day: int = 1) -> datetime:
+    return datetime.fromisoformat(f"2150-01-0{day} {hhmm}:00")
+
+
+def test_store_lists_only_stays_with_infusions(store):
+    assert [s["stay_id"] for s in store.stays()] == [101]
+    assert store.stay(101)["n_infusion_rows"] == 3
+    assert store.stay(999) is None
+
+
+def test_hourly_grid_spreads_amount_by_overlap(store):
+    cells = store.grid(101, "hour", at("08:00"), at("23:00"))
+    kcl = {c["bucket"].hour: c["amount"] for c in cells if c["label"] == "Potassium Chloride"}
+    assert kcl == {10: pytest.approx(5), 11: pytest.approx(10), 12: pytest.approx(5)}
+    [ca] = [c for c in cells if c["label"] == "Calcium Gluconate"]
+    assert (ca["bucket"].hour, ca["amount"]) == (11, pytest.approx(2))
+
+
+def test_grid_stops_at_the_replay_clock(store):
+    cells = store.grid(101, "hour", at("08:00"), at("11:30"))
+    kcl = {c["bucket"].hour: c["amount"] for c in cells if c["label"] == "Potassium Chloride"}
+    assert kcl == {10: pytest.approx(5), 11: pytest.approx(5)}
+
+
+def test_daily_and_weekly_totals_match_charted_amounts(store):
+    for grain in ("day", "week"):
+        cells = store.grid(101, grain, at("00:00"), at("00:00", day=3))
+        assert sum(c["amount"] for c in cells if c["label"] == "Potassium Chloride") == pytest.approx(20)
+
+
+def test_unknown_grain_is_rejected(store):
+    with pytest.raises(ValueError):
+        store.grid(101, "month", at("08:00"), at("09:00"))
+
+
+def bundle_at(store, clock):
+    stay = store.stay(101)
+    labs = store.labs(1, at("00:00"), clock)
+    return BundleIndex(build_bundle(stay, store.infusions(101, until=clock), labs, clock))
+
+
+def test_bundle_shows_only_what_had_happened(store):
+    idx = bundle_at(store, at("11:00"))
+    [ma] = idx.of("MedicationAdministration")
+    assert ma["status"] == "in-progress"
+    assert "end" not in ma["effectivePeriod"]  # a live feed would not know the end yet
+    assert ma["effectivePeriod"]["start"].endswith("+00:00")
+    [order] = idx.of("MedicationRequest")
+    assert order["status"] == "active"
+    assert idx.latest_observation(("http://loinc.org", "29463-7"), at("11:00").replace(tzinfo=UTC))
+
+
+def test_mimic_potassium_raises_the_hyperkalemia_flag(store):
+    clock = at("11:00")
+    flags = evaluate_flags(bundle_at(store, clock), load_rules(), clock.replace(tzinfo=UTC))
+    [flag] = [f for f in flags if f.rule_id == "physio-hyperkalemia-potassium-chloride"]
+    assert flag.status == "do_not_infuse"
+    assert "6.2" in flag.evidence[0]["detail"]
+
+
+def test_lab_not_yet_stored_is_not_used(store):
+    # The 4.1 drawn at 11:50 is not stored until 13:00, so at 12:00 the 6.2 still applies.
+    clock = at("12:00")
+    flags = evaluate_flags(bundle_at(store, clock), load_rules(), clock.replace(tzinfo=UTC))
+    [flag] = [f for f in flags if f.rule_id == "physio-hyperkalemia-potassium-chloride"]
+    assert "6.2" in flag.evidence[0]["detail"]

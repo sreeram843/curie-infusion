@@ -3,8 +3,8 @@
 A FHIR-native infusion dose ledger and "what not to infuse" safety engine (working title in the PRD:
 *SmartInfuse Audit & Safety Engine*).
 
-> **Prototype only.** Synthetic data, synthetic drug codes, illustrative rules. Not clinically
-> validated, not FDA-cleared, not for patient care.
+> **Prototype only.** Illustrative rules on synthetic drug codes, replayed against MIMIC-IV 3.1 data
+> kept on this machine. Not clinically validated, not FDA-cleared, not for patient care.
 
 ## What it does (v0.1)
 
@@ -17,8 +17,27 @@ Given one patient's FHIR R4 `Bundle` and an `as_of` time:
 - **Safety flags:** deterministic rules for lab thresholds, active conditions, allergies, and
   co-infusion/Y-site pairs. Each flag carries its evidence references and a citation.
 
-No LLM is on the flag-raising path. An LLM summary (PRD P1) may only explain a flag that has
-already been raised.
+No LLM is on the flag-raising path. The LLM summary may only explain flags that have already been
+raised, and its output is rejected unless it matches those flags one-to-one.
+
+## MIMIC-IV app (v0.2)
+
+A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were streaming into it:
+
+- **Grid** of every infusion and medication given, per drug, by **hour, day, or week**.
+- **Pump clock** you can step or replay; nothing after it is shown or used.
+- **Current-hour safety panel:** flags on what is running, a **"do not start"** list checked against
+  current labs, the latest available labs, and a plain-language **AI summary** from a local
+  LM Studio model.
+
+```bash
+uv pip install -e ".[app,dev]"
+.venv/bin/curie-infusion mimic-build ~/AI/mimiciv-v3.1/mimiciv/3.1   # once, ~30 s -> data/mimic/
+.venv/bin/curie-infusion serve                                        # http://127.0.0.1:8765
+```
+
+Set `CURIE_LLM_URL` (default `http://127.0.0.1:1234`) and optionally `CURIE_LLM_MODEL`. Without a
+reachable model the panel shows the rule text instead. `data/` is gitignored; never commit it.
 
 ## Quick start
 

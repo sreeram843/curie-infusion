@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curie Infusion</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #1b1f24; --muted: #5d6673; --line: #e2e5ea;
+    --accent: #1f6feb; --stop: #c62828; --stop-bg: #fdecea; --warn: #9a6700; --warn-bg: #fff4d6;
+    --info: #455a64; --info-bg: #eceff1; --cell: #e8f0fe; --cell-strong: #c6dafc; --now: #fff8e1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --panel: #171b21; --ink: #e6e9ee; --muted: #9aa4b2; --line: #2a303a;
+      --accent: #5b9dff; --stop: #ff8a80; --stop-bg: #3a1c1c; --warn: #f2c14e; --warn-bg: #3a2f14;
+      --info: #b0bec5; --info-bg: #232a31; --cell: #1c2a40; --cell-strong: #24406b; --now: #2d2a1a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .note { color: var(--muted); font-size: 12px; }
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 360px; height: calc(100vh - 43px); }
+  aside, main, section.safety { overflow: auto; }
+  aside { border-right: 1px solid var(--line); background: var(--panel); padding: 12px; }
+  aside input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+  .stay { padding: 6px 8px; border-radius: 6px; cursor: pointer; margin-top: 4px; }
+  .stay:hover { background: var(--bg); }
+  .stay.sel { background: var(--cell); }
+  .stay small { display: block; color: var(--muted); }
+  main { padding: 12px 16px; }
+  .banner { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 10px; }
+  .banner b { font-size: 15px; }
+  .muted { color: var(--muted); }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+  button, .tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 5px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  input[type=datetime-local] { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .gridwrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); max-height: calc(100vh - 190px); }
+  table { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: right; font-size: 12.5px; }
+  thead th { position: sticky; top: 0; background: var(--panel); z-index: 2; color: var(--muted); font-weight: 600; }
+  th.drug, td.drug { position: sticky; left: 0; background: var(--panel); text-align: left; z-index: 1; min-width: 220px; }
+  thead th.drug { z-index: 3; }
+  td.drug small { color: var(--muted); margin-left: 4px; }
+  tr.cat td { background: var(--bg); color: var(--muted); font-weight: 600; text-align: left; }
+  td.v { background: var(--cell); }
+  td.v.hi { background: var(--cell-strong); }
+  th.now, td.now { box-shadow: inset 2px 0 var(--accent), inset -2px 0 var(--accent); }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: middle; }
+  section.safety { border-left: 1px solid var(--line); background: var(--panel); padding: 12px 14px; }
+  section.safety h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+  section.safety h2:first-child { margin-top: 0; }
+  .flag { border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 13px; }
+  .flag .h { font-weight: 600; }
+  .flag .e { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .do_not_infuse { background: var(--stop-bg); border-left: 3px solid var(--stop); }
+  .do_not_infuse .h { color: var(--stop); }
+  .review { background: var(--warn-bg); border-left: 3px solid var(--warn); }
+  .review .h { color: var(--warn); }
+  .insufficient_context { background: var(--info-bg); border-left: 3px solid var(--info); }
+  .empty { color: var(--muted); font-size: 13px; }
+  .ai { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; font-size: 13px; }
+  .ai-meta { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  ul.plain { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+  ul.plain li { padding: 3px 0; border-bottom: 1px dashed var(--line); display: flex; justify-content: space-between; gap: 8px; }
+  .prov { color: var(--muted); font-size: 11px; margin-top: 16px; }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    aside { max-height: 220px; }
+    section.safety { border-left: 0; border-top: 1px solid var(--line); }
+    .gridwrap { max-height: 60vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Curie Infusion</h1>
+  <span class="note">MIMIC-IV 3.1 replay · research prototype · illustrative rules · not for patient care</span>
+</header>
+<div class="layout">
+  <aside>
+    <input id="q" placeholder="Search stay or subject id" autocomplete="off">
+    <div id="stays"></div>
+  </aside>
+  <main>
+    <div class="banner" id="banner"><span class="muted">Select an ICU stay.</span></div>
+    <div class="controls" id="controls" hidden>
+      <div class="tabs">
+        <button data-grain="hour" class="on">Hourly</button>
+        <button data-grain="day">Daily</button>
+        <button data-grain="week">Weekly</button>
+      </div>
+      <span class="muted" style="margin-left:8px">Pump clock</span>
+      <button id="back" title="Back 1 hour">−1h</button>
+      <input type="datetime-local" id="clock" step="60">
+      <button id="fwd" title="Forward 1 hour">+1h</button>
+      <button id="play" title="Advance 1 hour every 2 seconds">▶ Replay</button>
+    </div>
+    <div class="gridwrap" id="gridwrap" hidden><table id="grid"></table></div>
+  </main>
+  <section class="safety" id="safety">
+    <p class="empty">Current-hour safety appears here.</p>
+  </section>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0 };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const iso = (d) => d.toISOString().slice(0, 16);   // naive UTC minutes, the MIMIC convention
+const parse = (s) => new Date(s.slice(0, 16) + "Z");
+const fmt = (v) => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v >= 0.01 ? v.toFixed(2) : v.toExponential(1);
+const api = async (path) => { const r = await fetch(path); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+
+async function loadStays(q = "") {
+  const stays = await api(`/api/stays?limit=100${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+  $("#stays").innerHTML = stays.map((s) => `
+    <div class="stay${state.stay?.stay_id === s.stay_id ? " sel" : ""}" data-id="${s.stay_id}">
+      <b>${s.stay_id}</b> <span class="muted">· ${s.subject_id}</span>
+      <small>${esc(s.first_careunit)} · ${s.los.toFixed(1)} d · ${s.n_infusion_rows} rows</small>
+    </div>`).join("") || `<p class="empty">No stays.</p>`;
+}
+
+async function selectStay(id) {
+  state.stay = await api(`/api/stays/${id}`);
+  const s = state.stay;
+  state.clock = new Date(Math.min(parse(s.outtime), +parse(s.intime) + 12 * 3600e3));
+  $("#banner").innerHTML = `<b>Stay ${s.stay_id}</b>
+    <span>Subject ${s.subject_id} · ${s.gender}, ${s.anchor_age} y</span>
+    <span>${esc(s.first_careunit)}</span>
+    <span class="muted">${s.intime.replace("T", " ").slice(0, 16)} → ${s.outtime.replace("T", " ").slice(0, 16)} (${s.los.toFixed(1)} d)</span>`;
+  $("#controls").hidden = false;
+  $("#gridwrap").hidden = false;
+  document.querySelectorAll(".stay").forEach((el) => el.classList.toggle("sel", +el.dataset.id === s.stay_id));
+  refresh();
+}
+
+function setClock(d) {
+  const s = state.stay;
+  state.clock = new Date(Math.max(parse(s.intime), Math.min(parse(s.outtime), d)));
+  refresh();
+}
+
+async function refresh() {
+  const req = ++state.req;
+  $("#clock").value = iso(state.clock);
+  const q = `as_of=${iso(state.clock)}`;
+  const id = state.stay.stay_id;
+  const [grid, safety] = await Promise.all([
+    api(`/api/stays/${id}/grid?grain=${state.grain}&${q}`),
+    api(`/api/stays/${id}/safety?${q}`),
+  ]);
+  if (req !== state.req) return;   // a newer clock position won
+  renderGrid(grid);
+  renderSafety(safety);
+  const ai = await api(`/api/stays/${id}/summary?${q}`).catch((e) => ({ text: String(e), source: "error" }));
+  if (req === state.req) renderSummary(ai);
+}
+
+function bucketLabel(b, grain) {
+  const d = parse(b);
+  if (grain === "hour") return `${String(d.getUTCHours()).padStart(2, "0")}:00`;
+  const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+  return grain === "day" ? md : `wk ${md}`;
+}
+
+function renderGrid(g) {
+  const nowBucket = g.buckets[g.buckets.length - 1];
+  const head = `<thead><tr><th class="drug">Medication / fluid (unit)</th>${g.buckets.map((b) =>
+    `<th class="${b === nowBucket ? "now" : ""}" title="${b}">${bucketLabel(b, g.grain)}</th>`).join("")}<th>Total</th></tr></thead>`;
+  let body = "", cat = null;
+  for (const r of g.rows) {
+    if (r.category !== cat) {
+      cat = r.category;
+      body += `<tr class="cat"><td class="drug">${esc(cat)}</td><td colspan="${g.buckets.length + 1}"></td></tr>`;
+    }
+    const vals = g.buckets.map((b) => r.cells[b]?.amount ?? 0);
+    const max = Math.max(...vals);
+    const total = vals.reduce((a, b) => a + b, 0);
+    body += `<tr><td class="drug">${r.continuous ? '<span class="dot" title="continuous infusion"></span>' : ""}${esc(r.label)}<small>${esc(r.unit)}</small></td>${
+      g.buckets.map((b, i) => {
+        const c = r.cells[b];
+        const cls = [b === nowBucket ? "now" : "", c ? "v" : "", c && vals[i] >= max * 0.66 ? "hi" : ""].join(" ");
+        const tip = c?.max_rate != null ? `max rate ${fmt(c.max_rate)} ${c.rate_unit}` : "";
+        return `<td class="${cls}" title="${esc(tip)}">${c ? fmt(c.amount) : ""}</td>`;
+      }).join("")}<td><b>${fmt(total)}</b></td></tr>`;
+  }
+  if (!g.rows.length) body = `<tr><td class="drug empty" colspan="${g.buckets.length + 2}">Nothing charted in this window.</td></tr>`;
+  $("#grid").innerHTML = head + `<tbody>${body}</tbody>`;
+  const wrap = $("#gridwrap");
+  wrap.scrollLeft = wrap.scrollWidth;
+}
+
+function flagCard(f) {
+  const act = f.status === "do_not_infuse" ? (f.hypothetical ? "Do not start" : "Hold") :
+              f.status === "review" ? "Review" : "Cannot check";
+  const ev = f.evidence.map((e) => esc(e.detail)).join(" · ");
+  return `<div class="flag ${f.status}"><div class="h">${act}: ${esc(f.drug)}</div>
+    <div>${esc(f.message)}</div><div class="e">${ev} · <code>${esc(f.rule_id)}</code></div></div>`;
+}
+
+function renderSafety(s) {
+  const clock = String(s.as_of).replace("T", " ").slice(0, 16);
+  const list = (fs, empty) => fs.length ? fs.map(flagCard).join("") : `<p class="empty">${empty}</p>`;
+  $("#safety").innerHTML = `
+    <h2>AI summary · ${clock}</h2>
+    <div class="ai" id="ai">Summarizing…</div><div class="ai-meta" id="ai-meta"></div>
+    <h2>Running or ordered now</h2>${list(s.flags, "No rule flags on running infusions.")}
+    <h2>Do not start</h2>${list(s.blocked, "Nothing in the rule table is blocked right now.")}
+    <h2>Running at ${clock.slice(11)}</h2>
+    <ul class="plain">${s.running.map((r) => `<li><span>${esc(r.drug)}</span><span class="muted">${
+      r.rate ? `${fmt(r.rate.value)} ${esc(r.rate.unit)}` : ""}</span></li>`).join("") || '<li class="empty">None</li>'}</ul>
+    <h2>Latest labs (available by ${clock.slice(11)})</h2>
+    <ul class="plain">${s.labs.map((l) => `<li><span>${esc(l.label)}</span><span>${l.valuenum} ${esc(l.valueuom ?? "")}
+      <span class="muted">${String(l.charttime).slice(5, 16).replace("T", " ")}</span></span></li>`).join("") || '<li class="empty">None in 48 h</li>'}</ul>
+    <p class="prov">${esc(s.rules_version)} — ${esc(s.rules_provenance)}</p>`;
+}
+
+function renderSummary(ai) {
+  const box = $("#ai");
+  if (!box) return;
+  box.textContent = ai.text;
+  $("#ai-meta").textContent = ai.source === "llm"
+    ? `Local model ${ai.model} · checked against the rule flags above`
+    : ai.error ? `Rule text shown (${ai.error})` : "From the rule engine";
+}
+
+$("#stays").addEventListener("click", (e) => { const el = e.target.closest(".stay"); if (el) selectStay(+el.dataset.id); });
+let debounce;
+$("#q").addEventListener("input", (e) => { clearTimeout(debounce); debounce = setTimeout(() => loadStays(e.target.value.trim()), 250); });
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  state.grain = b.dataset.grain; refresh();
+}));
+$("#back").onclick = () => setClock(new Date(+state.clock - 3600e3));
+$("#fwd").onclick = () => setClock(new Date(+state.clock + 3600e3));
+$("#clock").onchange = (e) => e.target.value && setClock(parse(e.target.value));
+$("#play").onclick = () => {
+  if (state.timer) { clearInterval(state.timer); state.timer = null; $("#play").textContent = "▶ Replay"; return; }
+  $("#play").textContent = "❚❚ Pause";
+  state.timer = setInterval(() => {
+    if (+state.clock >= +parse(state.stay.outtime)) return $("#play").click();
+    setClock(new Date(+state.clock + 3600e3));
+  }, 2000);
+};
+
+const initial = new URLSearchParams(location.search).get("stay");
+loadStays().then(() => initial && selectStay(+initial));
+</script>
+</body>
+</html>

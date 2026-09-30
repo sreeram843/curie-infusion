@@ -33,7 +33,25 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--as-of", required=True, help="ISO-8601 timestamp with timezone")
     ev.add_argument("--window-start", help="ISO-8601 start of the ledger window")
     ev.add_argument("--rules", type=Path, help="rules JSON (default: packaged v0.1)")
+    mb = sub.add_parser("mimic-build", help="convert MIMIC-IV 3.1 CSVs to the app's Parquet store")
+    mb.add_argument("source", type=Path, help="directory containing hosp/ and icu/")
+    mb.add_argument("--out", type=Path, default=Path("data/mimic"))
+    sv = sub.add_parser("serve", help="run the web app (needs the [app] extra)")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
+
+    if args.command == "mimic-build":
+        from .mimic.store import build_store
+
+        build_store(args.source, args.out)
+        print(f"wrote {args.out}")
+        return 0
+    if args.command == "serve":
+        from .app import serve
+
+        serve(args.host, args.port)
+        return 0
 
     state = evaluate(
         json.loads(args.bundle.read_text()),
