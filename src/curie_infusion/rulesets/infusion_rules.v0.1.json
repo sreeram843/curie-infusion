@@ -1,0 +1,39 @@
+{
+  "schema_version": "curie-infusion-rules/0.1",
+  "provenance": "Illustrative prototype rules on a synthetic drug code system. Not verified against a licensed IV-compatibility reference or clinical guideline. Not for patient care.",
+  "physiologic": [
+    {
+      "id": "physio-hyperkalemia-potassium-chloride",
+      "kind": "observation_threshold",
+      "drug_codes": [{"system": "https://curie.local/fhir/CodeSystem/synthetic-drug", "code": "potassium-chloride"}],
+      "observation_code": {"system": "http://loinc.org", "code": "2823-3"},
+      "operator": ">",
+      "threshold": 5.5,
+      "units": ["mmol/L", "mEq/L"],
+      "max_age_hours": 12,
+      "message": "Serum potassium above threshold while potassium chloride is running or ordered.",
+      "citation": "PRD section 4.2 example threshold (K > 5.5 mEq/L); illustrative, not clinically validated."
+    },
+    {
+      "id": "condition-hyperkalemia-potassium-chloride",
+      "kind": "condition_present",
+      "drug_codes": [{"system": "https://curie.local/fhir/CodeSystem/synthetic-drug", "code": "potassium-chloride"}],
+      "condition_codes": [{"system": "https://curie.local/fhir/CodeSystem/synthetic-condition", "code": "hyperkalemia"}],
+      "message": "Active hyperkalemia diagnosis while potassium chloride is running or ordered.",
+      "citation": "Illustrative prototype rule; not clinically validated."
+    }
+  ],
+  "coinfusion": [
+    {
+      "id": "ysite-ceftriaxone-calcium",
+      "scope": "same_line",
+      "drugs_a": [{"system": "https://curie.local/fhir/CodeSystem/synthetic-drug", "code": "ceftriaxone"}],
+      "drugs_b": [
+        {"system": "https://curie.local/fhir/CodeSystem/synthetic-drug", "code": "calcium-gluconate"},
+        {"system": "https://curie.local/fhir/CodeSystem/synthetic-drug", "code": "calcium-chloride"}
+      ],
+      "message": "Ceftriaxone and calcium-containing solutions must not share a line (precipitation risk).",
+      "citation": "Illustrative Y-site pair; verify against a licensed IV-compatibility reference and current product labeling."
+    }
+  ]
+}
