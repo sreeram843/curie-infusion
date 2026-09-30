@@ -12,6 +12,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from decimal import Decimal, InvalidOperation
 
 LMSTUDIO_URL = os.environ.get("CURIE_LLM_URL", "http://127.0.0.1:1234")
 LMSTUDIO_MODEL = os.environ.get("CURIE_LLM_MODEL", "")  # empty: first model the server lists
@@ -46,6 +47,17 @@ def _sorted(flags: list[dict]) -> list[dict]:
     return sorted(flags, key=lambda f: ORDER.get(f["status"], 3))
 
 
+def _tokens(number_list: list[str]) -> set[Decimal]:
+    """Numeric tokens as Decimal so '5' and '5.0' compare equal (same value)."""
+    out: set[Decimal] = set()
+    for tok in number_list:
+        try:
+            out.add(Decimal(tok))
+        except InvalidOperation:
+            pass
+    return out
+
+
 def validate(text: str, flags: list[dict]) -> str | None:
     """Why the LLM text is unusable, or None.
 
@@ -62,10 +74,12 @@ def validate(text: str, flags: list[dict]) -> str | None:
             return f"wrong action for {flag['rule_id']}: {bullet[:60]}"
         if flag["rule_id"] not in bullet or flag["drug"].lower() not in low:
             return f"bullet does not name {flag['drug']} / {flag['rule_id']}"
-        allowed = set(NUMBER.findall(json.dumps(flag, default=str)))
-        stated = set(NUMBER.findall(bullet.replace(flag["rule_id"], "")))
-        if extra := stated - allowed:
-            return f"numbers not in the evidence: {sorted(extra)}"
+        allowed = _tokens(NUMBER.findall(json.dumps(flag, default=str)))
+        stated = _tokens(NUMBER.findall(bullet.replace(flag["rule_id"], "")))
+        # Compare by numeric value, not raw formatting: a threshold written as 7.40 in the summary
+        # is the same number as 7.4 in the evidence, so only numbers genuinely absent are rejections.
+        if missing := [t for t in sorted(stated, key=lambda d: (d < 0, abs(d), d)) if t not in allowed]:
+            return f"numbers not in the evidence: {[str(t) for t in missing]}"
     return None
 
 
