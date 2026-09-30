@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curie Billing</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .layout.two { grid-template-columns: 240px minmax(0, 1fr); }
+  .callout { background: var(--warn-bg); border-left: 3px solid var(--warn); border-radius: 6px; padding: 8px 12px; font-size: 12.5px; margin-bottom: 12px; }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi .k { color: var(--muted); font-size: 12px; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .s { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .cols { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .card h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card .scroll { overflow: auto; max-height: calc(100vh - 330px); }
+  table.list { width: 100%; }
+  table.list th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; z-index: 1; }
+  table.list td, table.list th { text-align: right; }
+  table.list td.l, table.list th.l { text-align: left; white-space: normal; }
+  table.list tbody tr { cursor: pointer; }
+  table.list tbody tr:hover td { background: var(--bg); }
+  table.list tbody tr.sel td { background: var(--cell); }
+  tr.dayhead td { background: var(--bg); color: var(--muted); font-weight: 600; cursor: default; }
+  .st { font-size: 11px; padding: 1px 6px; border-radius: 10px; white-space: nowrap; }
+  .st.priced { background: var(--cell); color: var(--accent); }
+  .st.unpriced { background: var(--stop-bg); color: var(--stop); }
+  .st.units_only, .st.packaged { background: var(--info-bg); color: var(--info); }
+  .why { color: var(--muted); font-size: 11.5px; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chips button { font-size: 12px; padding: 2px 8px; }
+  code.c { font-size: 12px; }
+  .drg { display: inline-block; background: var(--info-bg); color: var(--info); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+  .sources { color: var(--muted); font-size: 11.5px; margin-top: 12px; line-height: 1.5; }
+  @media (max-width: 1100px) {
+    .layout.two { grid-template-columns: 1fr; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Curie Infusion</h1>
+  <nav class="pages"><a href="/" id="nav-infusions">Infusions</a><a href="/billing" class="on">Billing</a></nav>
+  <span class="note">Estimated charges at CMS reference prices · research prototype</span>
+</header>
+<div class="layout two">
+  <aside>
+    <input id="q" placeholder="Search stay or subject id" autocomplete="off">
+    <div id="stays"></div>
+  </aside>
+  <main id="main"><p class="empty">Select an ICU stay.</p></main>
+</div>
+<dialog id="detail" aria-labelledby="d-title"></dialog>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const money = (v) => v == null ? "—" : v.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const num = (v) => v == null ? "" : v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(2).replace(/\.?0+$/, "") : v.toPrecision(2);
+const parse = (s) => new Date(String(s).slice(0, 16) + "Z");
+const dayLabel = (s) => { const d = parse(s); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`; };
+const when = (s) => { const d = parse(s); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
+const api = async (path) => { const r = await fetch(path); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+const STATUS = { priced: "priced", unpriced: "not priced", units_only: "units only", packaged: "packaged" };
+const state = { stay: null, data: null, filter: "all", day: null };
+
+async function loadStays(q = "") {
+  const stays = await api(`/api/stays?limit=100${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+  $("#stays").innerHTML = stays.map((s) => `
+    <div class="stay${state.stay?.stay_id === s.stay_id ? " sel" : ""}" data-id="${s.stay_id}">
+      <b>${s.stay_id}</b> <span class="muted">· ${s.subject_id}</span>
+      <small>${esc(s.first_careunit)} · ${s.los.toFixed(1)} d</small>
+    </div>`).join("") || `<p class="empty">No stays.</p>`;
+}
+
+async function selectStay(id) {
+  $("#main").innerHTML = `<p class="empty">Pricing stay ${id}…</p>`;
+  const data = await api(`/api/stays/${id}/billing`);
+  state.stay = data.stay; state.data = data; state.day = null; state.filter = "all";
+  history.replaceState(null, "", `?stay=${id}`);
+  $("#nav-infusions").href = `/?stay=${id}`;
+  document.querySelectorAll(".stay").forEach((el) => el.classList.toggle("sel", +el.dataset.id === id));
+  render();
+}
+
+function render() {
+  const { stay: s, totals: t, drg, sources, days } = state.data;
+  const adminNote = sources.opps ? (t.packaged_lines ? `${t.packaged_lines} packaged line(s)` : "OPPS rates") :
+    `${t.units_only_lines} line(s) in units only`;
+  $("#main").innerHTML = `
+    <div class="banner"><b>Stay ${s.stay_id}</b>
+      <span>Subject ${s.subject_id} · ${s.gender}, ${s.anchor_age} y</span><span>${esc(s.first_careunit)}</span>
+      <span class="muted">${String(s.intime).replace("T", " ").slice(0, 16)} → ${String(s.outtime).replace("T", " ").slice(0, 16)} (${s.los.toFixed(1)} d)</span>
+      ${drg.map((d) => `<span class="drg" title="${esc(d.description)}">${d.drg_type === "HCFA" ? "MS-DRG" : "APR-DRG"} ${esc(d.drg_code)}${d.drg_severity ? ` · severity ${d.drg_severity}` : ""}</span>`).join(" ")}
+    </div>
+    <div class="callout">Estimate only. Drug lines use the CMS Part B payment limit (ASP + 6%) per HCPCS billing unit;
+      administration uses simplified per-day facility rules. Medicare pays an inpatient ICU stay as one DRG payment,
+      so this is not the hospital's charge or payment. MIMIC dates are shifted; prices are current CMS rates.</div>
+    <div class="kpis">
+      <div class="kpi"><div class="k">Drug charges</div><div class="v">${money(t.drugs)}</div><div class="s">${state.data.lines.filter((l) => l.kind === "drug" && l.status === "priced").length} priced lines</div></div>
+      <div class="kpi"><div class="k">Administration</div><div class="v">${sources.opps ? money(t.administration) : "units only"}</div><div class="s">${adminNote}</div></div>
+      <div class="kpi"><div class="k">Total estimate</div><div class="v">${money(t.total)}</div><div class="s">${days.length} day(s)</div></div>
+      <div class="kpi"><div class="k">Not priced</div><div class="v">${t.unpriced_lines}</div><div class="s">lines with a reason shown</div></div>
+    </div>
+    <div class="cols">
+      <div class="card"><h3>By day</h3><div class="scroll"><table class="list" id="days">
+        <thead><tr><th class="l">Day</th><th>Drugs</th><th>Admin</th><th>Total</th></tr></thead>
+        <tbody>${days.map((d) => `<tr data-day="${d.day}" class="${state.day === d.day ? "sel" : ""}"><td class="l">${dayLabel(d.day)}</td>
+          <td>${money(d.drugs)}</td><td>${sources.opps ? money(d.administration) : "—"}</td><td><b>${money(d.total)}</b></td></tr>`).join("")}</tbody>
+      </table></div></div>
+      <div class="card"><h3><span>Line items${state.day ? ` · ${dayLabel(state.day)} <button id="clear-day" style="font-size:11px;padding:1px 6px">all days</button>` : ""}</span>
+        <span class="chips">${["all", "drugs", "administration", "not priced"].map((f) =>
+          `<button data-filter="${f}" class="${state.filter === f ? "on" : ""}">${f}</button>`).join("")}</span></h3>
+        <div class="scroll"><table class="list" id="lines">
+          <thead><tr><th class="l">Code</th><th class="l">Item</th><th>Given</th><th>Units</th><th>Unit price</th><th>Amount</th><th class="l">Status</th></tr></thead>
+          <tbody>${linesHtml()}</tbody>
+        </table></div></div>
+    </div>
+    <div class="sources">
+      Drug prices: ${sources.asp ? `${esc(sources.asp.file)} (${esc(sources.asp.effective)})` : "<b>no ASP file found in data/cms</b>"}<br>
+      Administration rates: ${sources.opps ? esc(sources.opps.file) : "not loaded — download the OPPS Addendum B zip from cms.gov (accepting the AMA CPT license) into <code>data/cms/</code>; it is picked up automatically"}<br>
+      Crosswalk: ${esc(sources.crosswalk)} — ${esc(sources.crosswalk_provenance)}
+    </div>`;
+  wire();
+}
+
+function visibleLines() {
+  return state.data.lines.map((l, i) => ({ ...l, i })).filter((l) =>
+    (!state.day || l.day === state.day) &&
+    (state.filter === "all" || (state.filter === "drugs" && l.kind === "drug") ||
+     (state.filter === "administration" && l.kind === "administration") ||
+     (state.filter === "not priced" && l.status === "unpriced")));
+}
+
+function linesHtml() {
+  let html = "", day = null;
+  for (const l of visibleLines()) {
+    if (l.day !== day) { day = l.day; html += `<tr class="dayhead"><td class="l" colspan="7">${dayLabel(day)}</td></tr>`; }
+    const given = l.kind === "drug" ? `${num(l.amount)} ${esc(l.unit)}` : "";
+    html += `<tr data-i="${l.i}">
+      <td class="l">${l.code ? `<code class="c">${esc(l.code)}</code>` : "—"}</td>
+      <td class="l">${esc(l.labels.join(", "))}${l.description ? `<div class="why">${esc(l.description)}</div>` : ""}</td>
+      <td>${given}</td><td>${l.units || ""}</td><td>${l.unit_price != null ? money(l.unit_price) : ""}</td>
+      <td><b>${l.charge != null ? money(l.charge) : ""}</b></td>
+      <td class="l"><span class="st ${l.status}">${STATUS[l.status]}</span>${l.reason ? `<div class="why">${esc(l.reason)}</div>` : ""}</td></tr>`;
+  }
+  return html || `<tr><td class="l empty" colspan="7">No lines.</td></tr>`;
+}
+
+function wire() {
+  $("#days tbody").onclick = (e) => { const tr = e.target.closest("tr[data-day]"); if (!tr) return;
+    state.day = state.day === tr.dataset.day ? null : tr.dataset.day; render(); };
+  $("#clear-day")?.addEventListener("click", () => { state.day = null; render(); });
+  document.querySelectorAll("[data-filter]").forEach((b) => b.onclick = () => { state.filter = b.dataset.filter; render(); });
+  $("#lines tbody").onclick = (e) => { const tr = e.target.closest("tr[data-i]"); if (tr) openLine(state.data.lines[+tr.dataset.i]); };
+}
+
+async function openLine(l) {
+  const dlg = $("#detail");
+  const head = `<div class="d-head">
+      <div class="row" style="margin-top:0"><span class="muted">${dayLabel(l.day)} · ${l.kind}</span><button id="d-close" aria-label="Close">✕</button></div>
+      <h3 id="d-title">${l.code ? `${esc(l.code)} · ` : ""}${esc(l.labels.join(", "))}</h3>
+      <div class="row"><span class="d-total">${l.charge != null ? money(l.charge) : `<span class="muted" style="font-size:15px">${STATUS[l.status]}</span>`}</span></div>
+      <div class="muted" style="font-size:12px">${l.units ? `${l.units} unit(s)${l.unit_price != null ? ` × ${money(l.unit_price)}` : ""}` : ""}
+        ${l.description ? `<br>${esc(l.description)}` : ""}${l.reason ? `<br>${esc(l.reason)}` : ""}</div>
+    </div>`;
+  dlg.innerHTML = head + `<div class="d-body"><p class="empty">${l.kind === "drug" ? "Loading charted events…" :
+    "Derived from the day's IV orders: infusion time, pushes and plain-fluid time. See the Infusions page grid for the underlying events."}</p></div>`;
+  $("#d-close").onclick = () => dlg.close();
+  if (!dlg.open) dlg.showModal();
+  if (l.kind !== "drug") return;
+  const out = [];
+  for (const itemid of l.itemids) {
+    const q = new URLSearchParams({ itemid, bucket: l.day, grain: "day", as_of: state.stay.outtime });
+    const d = await api(`/api/stays/${state.stay.stay_id}/cell?${q}`);
+    out.push(...d.events.map((e) => ({ ...e, label: d.label })));
+  }
+  const body = out.map((e) => `<div class="ev">
+      <div class="ev-time">${when(e.start)} → ${e.end ? when(e.end) : "running"} <span class="tag">${esc(e.status)}</span></div>
+      <dl><dt>This day</dt><dd><b>${num(e.in_bucket)} ${esc(e.unit)}</b> <span class="muted">of ${num(e.amount)} ${esc(e.unit)}</span></dd>
+        <dt>Rate</dt><dd>${e.rate != null ? `${num(e.rate)} ${esc(e.rate_unit)}` : '<span class="muted">none charted</span>'}</dd>
+        <dt>Type</dt><dd>${esc(e.kind)}${e.component ? ` · ${esc(e.component)}` : ""}</dd>
+        <dt>Order</dt><dd>#${esc(e.order)} <span class="muted">(units rounded up per order per day)</span></dd></dl>
+    </div>`).join("") || `<p class="empty">No charted events.</p>`;
+  if (dlg.open) dlg.querySelector(".d-body").innerHTML = body;
+}
+
+$("#stays").addEventListener("click", (e) => { const el = e.target.closest(".stay"); if (el) selectStay(+el.dataset.id); });
+let debounce;
+$("#q").addEventListener("input", (e) => { clearTimeout(debounce); debounce = setTimeout(() => loadStays(e.target.value.trim()), 250); });
+$("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") e.target.close(); });
+const initial = new URLSearchParams(location.search).get("stay");
+loadStays().then(() => initial && selectStay(+initial));
+</script>
+</body>
+</html>

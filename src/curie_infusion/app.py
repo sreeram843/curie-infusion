@@ -6,14 +6,18 @@ Replay: every endpoint takes `as_of`, the simulated pump clock. Nothing after it
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from functools import cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from .billing.charges import ADMIN_CODES, admin_lines, drug_lines, load_crosswalk
+from .billing.prices import load_asp, load_opps
 from .fhir import BundleIndex
 from .mimic.fhir_adapter import build_bundle
 from .mimic.store import GRAINS, MimicStore
@@ -22,9 +26,11 @@ from .summary import summarize
 
 STORE_DIR = Path(os.environ.get("CURIE_MIMIC_STORE", "data/mimic"))
 STATIC = Path(__file__).parent / "static"
+CMS_DIR = Path(os.environ.get("CURIE_CMS_DIR", "data/cms"))
 LAB_LOOKBACK = timedelta(hours=48)
 
 app = FastAPI(title="Curie Infusion")
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 @cache
@@ -54,6 +60,63 @@ def _as_of(stay: dict, as_of: datetime | None) -> datetime:
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/billing")
+def billing_page() -> FileResponse:
+    return FileResponse(STATIC / "billing.html")
+
+
+def _price_files_key() -> tuple:
+    """Changes when a price file is added or replaced, so new downloads are picked up live."""
+    if not CMS_DIR.exists():
+        return ()
+    return tuple(sorted((str(p), p.stat().st_mtime) for p in CMS_DIR.rglob("*") if p.is_file()))
+
+
+@lru_cache(maxsize=4)
+def _prices(_key: tuple):
+    return load_asp(CMS_DIR), load_opps(CMS_DIR, set(ADMIN_CODES))
+
+
+@app.get("/api/stays/{stay_id}/billing")
+def billing(stay_id: int) -> dict:
+    """Estimated charges for the whole stay at CMS reference prices."""
+    stay = _stay(stay_id)
+    asp, opps = _prices(_price_files_key())
+    crosswalk = load_crosswalk()
+    lines = drug_lines(store().billing_rows(stay_id), crosswalk, asp) + admin_lines(store().orders(stay_id), opps)
+    lines.sort(key=lambda x: (x["day"], x["kind"] != "drug", x["status"] != "priced", x["code"] or ""))
+
+    days: dict = defaultdict(lambda: {"drugs": 0.0, "administration": 0.0})
+    for line in lines:
+        bucket = days[line["day"]]
+        if line["charge"] is not None:
+            bucket["drugs" if line["kind"] == "drug" else "administration"] += line["charge"]
+    drugs = round(sum(d["drugs"] for d in days.values()), 2)
+    admin = round(sum(d["administration"] for d in days.values()), 2)
+    return {
+        "stay": stay,
+        "drg": store().drg(stay["hadm_id"]),
+        "sources": {
+            "asp": {"file": asp.source, "effective": asp.effective} if asp else None,
+            "opps": {"file": opps.source} if opps else None,
+            "crosswalk": crosswalk["schema_version"],
+            "crosswalk_provenance": crosswalk["provenance"],
+        },
+        "totals": {
+            "drugs": drugs, "administration": admin, "total": round(drugs + admin, 2),
+            "unpriced_lines": sum(line["status"] == "unpriced" for line in lines),
+            "units_only_lines": sum(line["status"] == "units_only" for line in lines),
+            "packaged_lines": sum(line["status"] == "packaged" for line in lines),
+        },
+        "days": [
+            {"day": day, "drugs": round(v["drugs"], 2), "administration": round(v["administration"], 2),
+             "total": round(v["drugs"] + v["administration"], 2)}
+            for day, v in sorted(days.items())
+        ],
+        "lines": lines,
+    }
 
 
 @app.get("/api/stays")

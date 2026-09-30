@@ -36,6 +36,10 @@ uv pip install -e ".[app,dev]"
   `http://127.0.0.1:1234`). Never send MIMIC rows to a hosted LLM API.
 - The LLM summary only rewords flags already raised; `summary.validate` rejects any output whose
   bullets do not match the flags one-to-one (action, drug, rule_id, and every stated number).
+- Billing: CMS price files stay in `data/cms/` (gitignored). The OPPS Addendum B file is behind the
+  AMA CPT license: the user downloads it; never accept that license, commit the file, or show CPT
+  descriptors (use our own short labels for 963xx codes). Crosswalk codes must exist in the CMS
+  file (checked when added); unpriceable items get a `note` instead of a guessed code.
 - Never commit patient data, API keys, or licensed compatibility-database content.
 
 ## Workflow

@@ -12,7 +12,10 @@
 | `mimic/store.py` | Build the Parquet store from MIMIC-IV 3.1 CSVs (DuckDB); per-stay queries; the hour/day/week grid. |
 | `mimic/fhir_adapter.py` | MIMIC rows → the FHIR Bundle a live feed would have produced by `as_of`. |
 | `summary.py` | Local LM Studio summary of existing flags, with one-to-one output validation and a rule-text fallback. |
-| `app.py`, `static/index.html` | FastAPI endpoints and the single-page UI. |
+| `billing/prices.py` | Read CMS price files: Part B ASP payment limits; OPPS Addendum B rates (user-downloaded). |
+| `billing/charges.py` | Drug lines (HCPCS × billing units × ASP) and per-day administration codes (963xx). |
+| `billing/hcpcs_crosswalk.v0.1.json` | MIMIC itemid → HCPCS, or a note explaining why an item cannot be priced. |
+| `app.py`, `static/` | FastAPI endpoints; `index.html` (infusions), `billing.html` (billing), shared `app.css`. |
 
 The engine core (`fhir`, `ledger`, `rules`) has no runtime dependencies (stdlib only). The MIMIC
 store and the app need the `[app]` extra (DuckDB, FastAPI, uvicorn).

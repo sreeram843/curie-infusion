@@ -76,3 +76,22 @@ def test_cell_detail_does_not_reveal_the_future(client):
     assert ev["amount"] == pytest.approx(10)  # delivered so far, not the 20 charted for the whole bag
     assert ev["in_bucket"] == pytest.approx(5)
     assert ev["bag"] == [{"label": "NaCl 0.9%", "amount": None, "unit": "mL", "rate": 50, "rate_unit": "mL/hour"}]
+
+
+def test_billing_page_and_endpoint(client, tmp_path, monkeypatch):
+    (tmp_path / "Payment Limit File.csv").write_text(
+        "HCPCS Code,Short Description,HCPCS Code Dosage,Payment Limit\n"
+        "J3480,Inj potassium chloride,2 MEQ,0.130\nJ0612,Inj calcium gluconate,10 MG,0.024\n"
+    )
+    monkeypatch.setattr(app_module, "CMS_DIR", tmp_path)
+    assert "Billing" in client.get("/billing").text
+    b = client.get("/api/stays/101/billing").json()
+    by_code = {(line["code"], line["kind"]): line for line in b["lines"]}
+    kcl = by_code[("J3480", "drug")]
+    assert (kcl["units"], kcl["charge"]) == (10, pytest.approx(1.3))  # 20 mEq / 2 mEq
+    assert by_code[("J0612", "drug")]["units"] == 200  # 2 g / 10 mg
+    assert ("J7030", "drug") not in by_code  # the NaCl carrier of the KCl drip is not billed alone
+    assert by_code[("J0696", "drug")]["status"] == "unpriced"  # ceftriaxone: no price in this file
+    assert by_code[("96365", "administration")]["status"] == "units_only"
+    assert b["totals"]["drugs"] == pytest.approx(1.3 + 4.8)
+    assert b["sources"]["opps"] is None and b["drg"][0]["drg_code"] in {"871", "720"}

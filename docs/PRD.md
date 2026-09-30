@@ -69,6 +69,7 @@
 | Physiological safety blocks | "Do Not Infuse" when current labs or diagnoses conflict. | P0 | ✅ labs, conditions, allergies |
 | "Do not start" list | Every drug in the rule table checked against current physiology, even if not ordered. | P0 | ✅ v0.2 `blocked_medications` |
 | AI contraindication summary | Natural-language explanation of why an infusion is flagged, citing data points. | P1 | ✅ v0.2 local LM Studio, validated |
+| Billing estimate | Per-stay drug and administration charges at CMS reference prices. | P1 | ✅ v0.2 `/billing` |
 | Audit ledger export | Reports of infusions, titrations, and cleared flags for pharmacy audits. | P1 | JSON state only |
 
 ## 4. Technical architecture and FHIR mapping

@@ -1,0 +1,395 @@
+{
+ "schema_version": "curie-infusion-hcpcs-crosswalk/0.1",
+ "provenance": "MIMIC-IV 3.1 icu/d_items itemid -> CMS HCPCS Level II code (public domain). Every code was checked to exist in the CMS October 2026 Medicare Part B payment limit file; the generic/NOS code is used where manufacturer-specific codes also exist. Unit conversion is derived from the CMS dosage descriptor, not stored here. Not reviewed by a certified coder. Items with hcpcs=null carry a note explaining why they cannot be priced (verified absent from the file).",
+ "items": {
+  "222168": {
+   "label": "Propofol",
+   "hcpcs": "J2704"
+  },
+  "221744": {
+   "label": "Fentanyl",
+   "hcpcs": "J3010"
+  },
+  "225942": {
+   "label": "Fentanyl (Concentrate)",
+   "hcpcs": "J3010"
+  },
+  "221749": {
+   "label": "Phenylephrine",
+   "hcpcs": "J2371"
+  },
+  "229630": {
+   "label": "Phenylephrine (50/250)",
+   "hcpcs": "J2371"
+  },
+  "229632": {
+   "label": "Phenylephrine (200/250)",
+   "hcpcs": "J2371"
+  },
+  "225166": {
+   "label": "Potassium Chloride",
+   "hcpcs": "J3480"
+  },
+  "227536": {
+   "label": "KCl (CRRT)",
+   "hcpcs": "J3480"
+  },
+  "225152": {
+   "label": "Heparin Sodium",
+   "hcpcs": "J1644"
+  },
+  "221668": {
+   "label": "Midazolam (Versed)",
+   "hcpcs": "J2250"
+  },
+  "221833": {
+   "label": "Hydromorphone (Dilaudid)",
+   "hcpcs": "J1171"
+  },
+  "221794": {
+   "label": "Furosemide (Lasix)",
+   "hcpcs": "J1938"
+  },
+  "228340": {
+   "label": "Furosemide (Lasix) 250/50",
+   "hcpcs": "J1938"
+  },
+  "222011": {
+   "label": "Magnesium Sulfate",
+   "hcpcs": "J3475"
+  },
+  "225154": {
+   "label": "Morphine Sulfate",
+   "hcpcs": "J2270"
+  },
+  "221456": {
+   "label": "Calcium Gluconate",
+   "hcpcs": "J0612"
+  },
+  "227525": {
+   "label": "Calcium Gluconate (CRRT)",
+   "hcpcs": "J0612"
+  },
+  "222042": {
+   "label": "Nicardipine",
+   "hcpcs": "J2404"
+  },
+  "229624": {
+   "label": "Nicardipine 40mg/200",
+   "hcpcs": "J2404"
+  },
+  "221385": {
+   "label": "Lorazepam (Ativan)",
+   "hcpcs": "J2060"
+  },
+  "222315": {
+   "label": "Vasopressin",
+   "hcpcs": "J2598"
+  },
+  "221289": {
+   "label": "Epinephrine",
+   "hcpcs": "J0165"
+  },
+  "220864": {
+   "label": "Albumin 5%",
+   "hcpcs": "P9041"
+  },
+  "220862": {
+   "label": "Albumin 25%",
+   "hcpcs": "P9047"
+  },
+  "228316": {
+   "label": "Levetiracetam (Keppra)",
+   "hcpcs": "J1957"
+  },
+  "225833": {
+   "label": "Thiamine",
+   "hcpcs": "J3411"
+  },
+  "221347": {
+   "label": "Amiodarone",
+   "hcpcs": "J0282"
+  },
+  "228339": {
+   "label": "Amiodarone 600/500",
+   "hcpcs": "J0282"
+  },
+  "229654": {
+   "label": "Amiodarone 450/250",
+   "hcpcs": "J0282"
+  },
+  "225147": {
+   "label": "Argatroban",
+   "hcpcs": "J0883"
+  },
+  "229616": {
+   "label": "Ondansetron (Zofran)",
+   "hcpcs": "J2405"
+  },
+  "225798": {
+   "label": "Vancomycin",
+   "hcpcs": "J3373"
+  },
+  "228315": {
+   "label": "Acetaminophen-IV",
+   "hcpcs": "J0131"
+  },
+  "225974": {
+   "label": "Metoprolol",
+   "hcpcs": "J0616"
+  },
+  "221828": {
+   "label": "Hydralazine",
+   "hcpcs": "J0360"
+  },
+  "225153": {
+   "label": "Labetalol",
+   "hcpcs": "J1920"
+  },
+  "221468": {
+   "label": "Diltiazem",
+   "hcpcs": "J1163"
+  },
+  "221429": {
+   "label": "Esmolol",
+   "hcpcs": "J1805"
+  },
+  "225155": {
+   "label": "Octreotide",
+   "hcpcs": "J2354"
+  },
+  "221662": {
+   "label": "Dopamine",
+   "hcpcs": "J1265"
+  },
+  "221653": {
+   "label": "Dobutamine",
+   "hcpcs": "J1250"
+  },
+  "221986": {
+   "label": "Milrinone",
+   "hcpcs": "J2260"
+  },
+  "222056": {
+   "label": "Nitroglycerin",
+   "hcpcs": "J2305"
+  },
+  "229234": {
+   "label": "Clevidipine (Cleviprex)",
+   "hcpcs": "J0759"
+  },
+  "221824": {
+   "label": "Haloperidol (Haldol)",
+   "hcpcs": "J1630"
+  },
+  "229639": {
+   "label": "Bumetanide (Bumex)",
+   "hcpcs": "J1939"
+  },
+  "229070": {
+   "label": "Glycopyrolate (Robinul)",
+   "hcpcs": "J1596"
+  },
+  "229072": {
+   "label": "Ketorolac (Toradol)",
+   "hcpcs": "J1885"
+  },
+  "221623": {
+   "label": "Diazepam (Valium)",
+   "hcpcs": "J3360"
+  },
+  "225832": {
+   "label": "Folic Acid",
+   "hcpcs": "J1808"
+  },
+  "227689": {
+   "label": "Dilantin",
+   "hcpcs": "J1165"
+  },
+  "225158": {
+   "label": "NaCl 0.9%",
+   "hcpcs": "J7030"
+  },
+  "220949": {
+   "label": "Dextrose 5%",
+   "hcpcs": "J7060"
+  },
+  "225828": {
+   "label": "LR",
+   "hcpcs": "J7120"
+  },
+  "225825": {
+   "label": "D5NS",
+   "hcpcs": "J7042"
+  },
+  "225851": {
+   "label": "Cefepime",
+   "hcpcs": "J0692"
+  },
+  "225893": {
+   "label": "Piperacillin/Tazobactam (Zosyn)",
+   "hcpcs": "J2543"
+  },
+  "225884": {
+   "label": "Metronidazole",
+   "hcpcs": "J1836"
+  },
+  "225907": {
+   "label": "Famotidine (Pepcid)",
+   "hcpcs": "J1308"
+  },
+  "225883": {
+   "label": "Meropenem",
+   "hcpcs": "J2185"
+  },
+  "225850": {
+   "label": "Cefazolin",
+   "hcpcs": "J0690"
+  },
+  "225855": {
+   "label": "Ceftriaxone",
+   "hcpcs": "J0696"
+  },
+  "225859": {
+   "label": "Ciprofloxacin",
+   "hcpcs": "J0744"
+  },
+  "225853": {
+   "label": "Ceftazidime",
+   "hcpcs": "J0713"
+  },
+  "225888": {
+   "label": "Nafcillin",
+   "hcpcs": "J2290"
+  },
+  "225842": {
+   "label": "Ampicillin",
+   "hcpcs": "J0290"
+  },
+  "225837": {
+   "label": "Acyclovir",
+   "hcpcs": "J0133"
+  },
+  "225975": {
+   "label": "Heparin Sodium (Prophylaxis)",
+   "hcpcs": "J1644"
+  },
+  "225843": {
+   "label": "Ampicillin/Sulbactam (Unasyn)",
+   "hcpcs": "J0295"
+  },
+  "225879": {
+   "label": "Levofloxacin",
+   "hcpcs": "J1956"
+  },
+  "225885": {
+   "label": "Micafungin",
+   "hcpcs": "J2248"
+  },
+  "225869": {
+   "label": "Fluconazole",
+   "hcpcs": "J1450"
+  },
+  "225860": {
+   "label": "Clindamycin",
+   "hcpcs": "J0736"
+  },
+  "225845": {
+   "label": "Azithromycin",
+   "hcpcs": "J0456"
+  },
+  "225881": {
+   "label": "Linezolid",
+   "hcpcs": "J2020"
+  },
+  "225847": {
+   "label": "Aztreonam",
+   "hcpcs": "J0457"
+  },
+  "221906": {
+   "label": "Norepinephrine",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "229420": {
+   "label": "Dexmedetomidine (Precedex)",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "225150": {
+   "label": "Dexmedetomidine (Precedex)",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "225910": {
+   "label": "Pantoprazole (Protonix)",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "223258": {
+   "label": "Insulin - Regular",
+   "hcpcs": null,
+   "note": "IV insulin (J1815) has no ASP payment limit in the CMS Part B file"
+  },
+  "223262": {
+   "label": "Insulin - Humalog",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "223260": {
+   "label": "Insulin - Glargine",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "223259": {
+   "label": "Insulin - NPH",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "221555": {
+   "label": "Cisatracurium",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "221712": {
+   "label": "Ketamine",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "220995": {
+   "label": "Sodium Bicarbonate 8.4%",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "225834": {
+   "label": "K Phos",
+   "hcpcs": null,
+   "note": "no ASP payment limit in the CMS Part B file (not separately payable under Part B)"
+  },
+  "227526": {
+   "label": "Citrate",
+   "hcpcs": null,
+   "note": "CRRT anticoagulant; no HCPCS drug code"
+  },
+  "227529": {
+   "label": "ACD-A Citrate (1000ml)",
+   "hcpcs": null,
+   "note": "CRRT anticoagulant; no HCPCS drug code"
+  },
+  "227522": {
+   "label": "KCL (Bolus)",
+   "hcpcs": null,
+   "note": "charted in mL; drug concentration not recorded, so units cannot be derived"
+  },
+  "227523": {
+   "label": "Magnesium Sulfate (Bolus)",
+   "hcpcs": null,
+   "note": "charted in mL; drug concentration not recorded, so units cannot be derived"
+  },
+  "229640": {
+   "label": "Calcium Gluconate (Bolus)",
+   "hcpcs": null,
+   "note": "charted in mL; drug concentration not recorded, so units cannot be derived"
+  }
+ }
+}

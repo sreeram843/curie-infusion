@@ -39,7 +39,7 @@ def build_store(source: Path, out: Path) -> None:
             SELECT
                 ie.stay_id, ie.subject_id, ie.hadm_id, ie.starttime, ie.endtime, ie.storetime,
                 ie.itemid, di.label, di.category, ie.amount, ie.amountuom, ie.rate, ie.rateuom,
-                ie.orderid, ie.linkorderid, ie.ordercategorydescription,
+                ie.orderid, ie.linkorderid, ie.ordercategoryname, ie.ordercategorydescription,
                 ie.ordercomponenttypedescription, ie.patientweight, ie.statusdescription
             FROM read_csv('{icu}/inputevents.csv.gz') ie
             JOIN read_csv('{icu}/d_items.csv.gz') di USING (itemid)
@@ -74,6 +74,15 @@ def build_store(source: Path, out: Path) -> None:
         ) TO '{out}/labs.parquet' (FORMAT parquet, ROW_GROUP_SIZE 100000)
     """)
 
+    con.execute(f"""
+        COPY (
+            SELECT hadm_id, drg_type, drg_code, description, drg_severity, drg_mortality
+            FROM read_csv('{hosp}/drgcodes.csv.gz', types={{'drg_code': 'VARCHAR'}})
+            WHERE hadm_id IN (SELECT hadm_id FROM '{out}/stays.parquet')
+            ORDER BY hadm_id
+        ) TO '{out}/drgcodes.parquet' (FORMAT parquet)
+    """)
+
 
 class MimicStore:
     """Read-only queries over the Parquet store."""
@@ -81,7 +90,7 @@ class MimicStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.con = duckdb.connect()
-        for name in ("stays", "inputevents", "labs"):
+        for name in ("stays", "inputevents", "labs", "drgcodes"):
             self.con.execute(f"CREATE VIEW {name} AS SELECT * FROM '{self.root / name}.parquet'")
 
     def _rows(self, sql: str, params: list | dict) -> list[dict]:
@@ -213,3 +222,50 @@ class MimicStore:
         for r in rows:
             r["bag"] = bag.get(r["orderid"], [])
         return rows
+
+    def billing_rows(self, stay_id: int) -> list[dict]:
+        """Charted amount per calendar day x item x order, split across days by overlap."""
+        return self._rows(
+            """
+            WITH ev AS (
+                SELECT *, greatest(endtime, starttime + INTERVAL 1 minute) AS eff_end
+                FROM inputevents WHERE stay_id = $stay AND amount IS NOT NULL
+                  -- the carrier a drug is mixed in is part of the drug preparation, not billed alone
+                  AND NOT (category = 'Fluids/Intake' AND ordercomponenttypedescription = 'Mixed solution')
+            ),
+            days AS (
+                SELECT d AS dstart, d + INTERVAL 1 day AS dend
+                FROM ev, generate_series(date_trunc('day', starttime), eff_end, INTERVAL 1 day) t(d)
+                GROUP BY d
+            )
+            SELECT dstart AS day, itemid, label, category, linkorderid, ordercategoryname, amountuom,
+                   sum(amount * epoch(least(eff_end, dend) - greatest(starttime, dstart))
+                       / epoch(eff_end - starttime)) AS amount
+            FROM ev JOIN days ON starttime < dend AND eff_end > dstart
+            GROUP BY ALL
+            HAVING sum(epoch(least(eff_end, dend) - greatest(starttime, dstart))) > 0
+            ORDER BY day, label
+            """,
+            {"stay": stay_id},
+        )
+
+    def orders(self, stay_id: int) -> list[dict]:
+        """One row per charted order segment (orderid) with its components."""
+        rows = self._rows(
+            """
+            SELECT orderid, min(starttime) AS start,
+                   max(greatest(endtime, starttime + INTERVAL 1 minute)) AS "end",
+                   any_value(ordercategoryname) AS ordercategoryname,
+                   any_value(ordercategorydescription) AS ordercategorydescription,
+                   list(DISTINCT struct_pack(itemid := itemid, label := label, category := category)) AS items
+            FROM inputevents WHERE stay_id = ?
+            GROUP BY orderid ORDER BY start
+            """,
+            [stay_id],
+        )
+        for r in rows:
+            r["items"] = [(i["itemid"], i["label"], i["category"]) for i in r["items"]]
+        return rows
+
+    def drg(self, hadm_id: int) -> list[dict]:
+        return self._rows("SELECT * FROM drgcodes WHERE hadm_id = ? ORDER BY drg_type", [hadm_id])

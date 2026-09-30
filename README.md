@@ -40,6 +40,25 @@ uv pip install -e ".[app,dev]"
 .venv/bin/curie-infusion serve                                        # http://127.0.0.1:8765
 ```
 
+### Billing page (`/billing`)
+
+Estimated charges for a stay at CMS reference prices, by day and by line item, with a drill-down to
+the charted events behind each drug line.
+
+- **Drugs:** MIMIC item → HCPCS code via `billing/hcpcs_crosswalk.v0.1.json`; billing units derived
+  from the CMS dosage descriptor (e.g. `2 MEQ`), rounded up per order per day; priced at the CMS
+  Part B payment limit (ASP + 6%). Lines that cannot be priced say why (charted as "dose", no CMS
+  limit, concentration not recorded).
+- **Administration:** simplified per-day facility rules for the 96360–96376 family (infusion hours,
+  sequential/concurrent drugs, IV push, hydration). Shown as units until an OPPS Addendum B file is
+  present, then priced; packaged codes are marked.
+- **Context:** the admission's MS-DRG / APR-DRG. Medicare pays inpatient stays per DRG, so these
+  are reference estimates, not the hospital's charges.
+
+Price files live in `data/cms/` (gitignored): the CMS Part B payment limit zip (public), and
+optionally the OPPS Addendum B zip, which you download yourself because cms.gov gates it behind the
+AMA CPT license. New files are picked up without a restart. Set `CURIE_CMS_DIR` to move them.
+
 Set `CURIE_LLM_URL` (default `http://127.0.0.1:1234`) and optionally `CURIE_LLM_MODEL`. Without a
 reachable model the panel shows the rule text instead. `data/` is gitignored; never commit it.
 
