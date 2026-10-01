@@ -96,3 +96,27 @@ td.vt.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
 table.readings { width: 100%; }
 table.readings th { color: var(--muted); font-weight: 600; }
 table.readings td.l, table.readings th.l { text-align: left; }
+nav.datatabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+nav.datatabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 6px 10px; }
+nav.datatabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+nav.datatabs button:hover { color: var(--ink); }
+.tabnote { color: var(--muted); font-size: 12px; margin: -4px 0 8px; }
+td.vt.ab { color: var(--stop); font-weight: 600; }
+.tabletools { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.tabletools input { flex: 0 1 280px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+table.list.dt { width: 100%; }
+table.list.dt td, table.list.dt th { text-align: left; white-space: normal; vertical-align: top; }
+table.list.dt th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; z-index: 1; }
+table.list.dt tbody tr { cursor: pointer; }
+table.list.dt tbody tr:hover td { background: var(--bg); }
+.st { font-size: 11px; padding: 1px 6px; border-radius: 10px; white-space: nowrap; background: var(--info-bg); color: var(--info); }
+.st.st-on { background: var(--cell); color: var(--accent); }
+.st.st-wait { background: var(--warn-bg); color: var(--warn); }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.kv div { display: flex; flex-direction: column; font-size: 13px; }
+.kv span { font-size: 11.5px; }
+h3.sub { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 8px; display: flex; gap: 10px; align-items: center; }
+h3.sub button { text-transform: none; letter-spacing: 0; font-size: 12px; }
+dl.fields { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; margin: 0; }
+dl.fields dt { color: var(--muted); text-transform: capitalize; }
+dl.fields dd { margin: 0; word-break: break-word; }

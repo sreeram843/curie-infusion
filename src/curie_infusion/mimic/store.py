@@ -98,6 +98,9 @@ def build_store(source: Path, out: Path) -> None:
         ) TO '{out}/drgcodes.parquet' (FORMAT parquet)
     """)
     build_vitals(source, out)
+    from .extras import build_extras
+
+    build_extras(source, out)
 
 
 def build_vitals(source: Path, out: Path) -> None:
@@ -130,8 +133,10 @@ class MimicStore:
     def __init__(self, root: Path):
         self.root = Path(root)
         self.con = duckdb.connect()
-        for name in ("stays", "inputevents", "labs", "drgcodes", "vitals"):
-            self.con.execute(f"CREATE VIEW {name} AS SELECT * FROM '{self.root / name}.parquet'")
+        # Core tables are required; tab tables (mimic/extras.py) are optional so a partial build works.
+        for path in sorted(self.root.glob("*.parquet")):
+            self.con.execute(f"CREATE VIEW {path.stem} AS SELECT * FROM '{path}'")
+        self.tables = {p.stem for p in self.root.glob("*.parquet")}
 
     def _rows(self, sql: str, params: list | dict) -> list[dict]:
         cur = self.con.cursor().execute(sql, params)

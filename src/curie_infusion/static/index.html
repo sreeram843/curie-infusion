@@ -19,8 +19,20 @@
   </aside>
   <main>
     <div class="banner" id="banner"><span class="muted">Select an ICU stay.</span></div>
+    <nav class="datatabs" id="datatabs" hidden>
+      <button data-tab="timeline" class="on">Infusions &amp; vitals</button>
+      <button data-tab="fluids">Fluid balance</button>
+      <button data-tab="labs">Labs</button>
+      <button data-tab="assessments">Assessments</button>
+      <button data-tab="nutrition">Nutrition</button>
+      <button data-tab="orders">Orders</button>
+      <button data-tab="emar">eMAR</button>
+      <button data-tab="micro">Microbiology</button>
+      <button data-tab="procedures">Lines &amp; procedures</button>
+      <button data-tab="journey">Journey &amp; diagnoses</button>
+    </nav>
     <div class="controls" id="controls" hidden>
-      <div class="tabs">
+      <div class="tabs" id="grains">
         <button data-grain="hour" class="on">Hourly</button>
         <button data-grain="day">Daily</button>
         <button data-grain="week">Weekly</button>
@@ -31,7 +43,9 @@
       <button id="fwd" title="Forward 1 hour">+1h</button>
       <button id="play" title="Advance 1 hour every 2 seconds">▶ Replay</button>
     </div>
+    <p class="tabnote" id="tabnote" hidden></p>
     <div class="gridwrap" id="gridwrap" hidden><table id="grid"></table></div>
+    <div id="tablewrap" hidden></div>
   </main>
   <section class="safety" id="safety">
     <p class="empty">Current-hour safety appears here.</p>
@@ -40,7 +54,7 @@
 <dialog id="detail" aria-labelledby="d-title"></dialog>
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0, sel: null };
+const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0, sel: null, tab: "timeline", filter: "", hindsight: false, table: null };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const iso = (d) => d.toISOString().slice(0, 16);   // naive UTC minutes, the MIMIC convention
 const parse = (s) => new Date(s.slice(0, 16) + "Z");
@@ -58,7 +72,7 @@ async function loadStays(q = "") {
 
 async function selectStay(id) {
   state.stay = await api(`/api/stays/${id}`);
-  history.replaceState(null, "", `?stay=${id}`);
+  history.replaceState(null, "", `?stay=${id}${state.tab !== "timeline" ? `&tab=${state.tab}` : ""}`);
   $("#nav-billing").href = `/billing?stay=${id}`;
   const s = state.stay;
   state.clock = new Date(Math.min(parse(s.outtime), +parse(s.intime) + 12 * 3600e3));
@@ -67,7 +81,7 @@ async function selectStay(id) {
     <span>${esc(s.first_careunit)}</span>
     <span class="muted">${s.intime.replace("T", " ").slice(0, 16)} → ${s.outtime.replace("T", " ").slice(0, 16)} (${s.los.toFixed(1)} d)</span>`;
   $("#controls").hidden = false;
-  $("#gridwrap").hidden = false;
+  $("#datatabs").hidden = false;
   document.querySelectorAll(".stay").forEach((el) => el.classList.toggle("sel", +el.dataset.id === s.stay_id));
   refresh();
 }
@@ -83,12 +97,14 @@ async function refresh() {
   $("#clock").value = iso(state.clock);
   const q = `as_of=${iso(state.clock)}`;
   const id = state.stay.stay_id;
-  const [grid, safety] = await Promise.all([
-    api(`/api/stays/${id}/grid?grain=${state.grain}&${q}`),
+  const view = state.tab === "timeline" ? `/api/stays/${id}/grid?grain=${state.grain}&${q}`
+    : `/api/stays/${id}/tabs/${state.tab}?grain=${state.grain}&${q}${state.hindsight ? "&hindsight=true" : ""}`;
+  const [data, safety] = await Promise.all([
+    api(view).catch((e) => ({ error: String(e.message || e) })),
     api(`/api/stays/${id}/safety?${q}`),
   ]);
   if (req !== state.req) return;   // a newer clock position won
-  renderGrid(grid);
+  renderView(data);
   renderSafety(safety);
   const ai = await api(`/api/stays/${id}/summary?${q}`).catch((e) => ({ text: String(e), source: "error" }));
   if (req === state.req) renderSummary(ai);
@@ -99,6 +115,118 @@ function bucketLabel(b, grain) {
   if (grain === "hour") return `${String(d.getUTCHours()).padStart(2, "0")}:00`;
   const md = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
   return grain === "day" ? md : `wk ${md}`;
+}
+
+function renderView(data) {
+  const isTable = data.kind === "table";
+  $("#grains").hidden = isTable;
+  $("#gridwrap").hidden = isTable || !!data.error;
+  $("#tablewrap").hidden = !isTable && !data.error;
+  $("#tabnote").hidden = !data.note;
+  $("#tabnote").textContent = data.note || "";
+  if (data.error) { $("#tablewrap").innerHTML = `<p class="empty">${esc(data.error)}</p>`; return; }
+  if (state.tab === "timeline") return renderGrid(data);
+  if (data.kind === "series") return renderSeries(data);
+  state.table = data;
+  renderTable();
+}
+
+const signed = (v) => v === 0 ? "0" : v < 0 ? `−${fmt(-v)}` : fmt(v);
+const cellText = (c) => c.text != null ? c.text : c.v == null ? "" : signed(c.v);
+
+function renderSeries(d) {
+  const nowBucket = d.buckets[d.buckets.length - 1];
+  const hasTotal = d.groups.some((g) => g.rows.some((r) => r.total != null));
+  let body = "";
+  for (const g of d.groups) {
+    body += `<tr class="cat"><td class="drug">${esc(g.name)}</td><td colspan="${d.buckets.length + 1}"></td></tr>`;
+    for (const r of g.rows) {
+      body += `<tr><td class="drug">${esc(r.label)}<small>${esc(r.unit)}</small></td>${d.buckets.map((b) => {
+        const c = r.cells[b];
+        const now = b === nowBucket ? "now" : "";
+        if (!c) return `<td class="${now}"></td>`;
+        return `<td class="${now} vt${c.flag ? " ab" : ""}" tabindex="0" role="button" data-key="${esc(r.key)}" data-bucket="${b}"
+          title="${esc(`${r.label}: ${c.tip || ""} · click for details`)}">${esc(cellText(c))}</td>`;
+      }).join("")}<td>${r.total != null ? `<b>${esc(cellText({ v: r.total }))}</b>` : ""}</td></tr>`;
+    }
+  }
+  if (!d.groups.length) body = `<tr><td class="drug empty" colspan="${d.buckets.length + 2}">Nothing charted in this window.</td></tr>`;
+  $("#grid").innerHTML = `<thead><tr><th class="drug">Item (unit)</th>${d.buckets.map((b) =>
+    `<th class="${b === nowBucket ? "now" : ""}" title="${b}">${bucketLabel(b, state.grain)}</th>`).join("")}<th>${hasTotal ? "Total" : ""}</th></tr></thead><tbody>${body}</tbody>`;
+  const wrap = $("#gridwrap");
+  wrap.scrollLeft = wrap.scrollWidth;
+}
+
+const show = (v) => v == null || v === "" ? "" : typeof v === "string" && /^\d{4}-\d\d-\d\dT/.test(v) ? when(v) : String(v);
+const STATUS_CLASS = { active: "st-on", ongoing: "st-on", pending: "st-wait", scheduled: "st-wait", stopped: "st-off", resulted: "st-off" };
+
+function renderTable() {
+  const d = state.table;
+  const f = state.filter.toLowerCase();
+  const rows = d.rows.map((r, i) => ({ r, i })).filter(({ r }) => !f || Object.values(r).some((v) => String(v ?? "").toLowerCase().includes(f)));
+  const LIMIT = 400;
+  const statusKey = d.columns.find((c) => c.key.startsWith("status"))?.key;
+  let html = `<div class="tabletools"><input id="tfilter" placeholder="Filter ${d.rows.length} rows…" value="${esc(state.filter)}" autocomplete="off">
+    <span class="muted">${rows.length} shown${rows.length > LIMIT ? ` (first ${LIMIT})` : ""} · click a row for every field</span></div>`;
+  if (d.tab === "journey") html = journeyHeader(d) + html;
+  html += `<div class="gridwrap"><table class="list dt"><thead><tr>${d.columns.map((c) => `<th class="l">${esc(c.label)}</th>`).join("")}</tr></thead><tbody>${
+    rows.slice(0, LIMIT).map(({ r, i }) => `<tr data-i="${i}" tabindex="0">${d.columns.map((c) => {
+      const v = show(r[c.key]);
+      return c.key === statusKey ? `<td class="l"><span class="st ${STATUS_CLASS[v] || ""}">${esc(v)}</span></td>` : `<td class="l">${esc(v)}</td>`;
+    }).join("")}</tr>`).join("") || `<tr><td class="l empty" colspan="${d.columns.length}">${d.rows.length ? "No rows match the filter." : emptyText(d.tab)}</td></tr>`
+  }</tbody></table></div>`;
+  if (d.tab === "journey") html += codingSection(d);
+  $("#tablewrap").innerHTML = html;
+  const input = $("#tfilter");
+  input.oninput = (e) => { state.filter = e.target.value; const pos = e.target.selectionStart; renderTable(); const n = $("#tfilter"); n.focus(); n.setSelectionRange(pos, pos); };
+  $("#tablewrap").querySelector("tbody").onclick = (e) => { const tr = e.target.closest("tr[data-i]"); if (tr) openRow(d.rows[+tr.dataset.i], d.columns); };
+  $("#hindsight")?.addEventListener("click", () => { state.hindsight = !state.hindsight; refresh(); });
+}
+
+const emptyText = (tab) => ({ emar: "No eMAR records for this admission by the clock (eMAR scanning is not present for every MIMIC admission).",
+  micro: "No specimens collected by the clock.", orders: "No pharmacy orders entered by the clock." }[tab] || "Nothing recorded by the clock.");
+
+function journeyHeader(d) {
+  const a = d.admission || {};
+  const kv = [["Admitted", show(a.admittime)], ["Type", a.admission_type], ["From", a.admission_location], ["Insurance", a.insurance],
+    ["Language", a.language], ["ED", a.edregtime ? `${show(a.edregtime)} → ${show(a.edouttime)}` : ""],
+    ["Discharged", a.dischtime ? show(a.dischtime) : "not yet (at the clock)"], ["Discharged to", a.discharge_location],
+    ["Died in hospital", a.hospital_expire_flag == null ? "" : a.hospital_expire_flag ? "yes" : "no"]];
+  return `<div class="kv">${kv.filter(([, v]) => v).map(([k, v]) => `<div><span class="muted">${k}</span><b>${esc(v)}</b></div>`).join("")}</div>`;
+}
+
+function codingSection(d) {
+  const toggle = `<button id="hindsight" class="${state.hindsight ? "on" : ""}" title="Show codes that were only assigned at discharge">${state.hindsight ? "Hide" : "Show"} discharge coding (hindsight)</button>`;
+  if (d.coding_hidden) return `<h3 class="sub">Diagnoses, procedures &amp; DRG ${toggle}</h3><p class="empty">Coded at discharge (${esc(show(d.dischtime))}); hidden at this clock.</p>`;
+  const rows = d.coding.map((c) => `<tr><td class="l">${esc(c.kind)}</td><td class="l">${c.seq ?? ""}</td><td class="l"><code>${esc(c.code)}</code></td><td class="l">${esc(c.title)}</td><td class="l">${esc(show(c.date))}</td></tr>`).join("");
+  return `<h3 class="sub">Diagnoses, procedures &amp; DRG ${d.dischtime && parse(String(d.dischtime)) > state.clock ? toggle : ""}</h3>
+    <div class="gridwrap"><table class="list dt"><thead><tr><th class="l">Kind</th><th class="l">#</th><th class="l">Code</th><th class="l">Title</th><th class="l">Date</th></tr></thead><tbody>${rows || '<tr><td class="l empty" colspan="5">None coded.</td></tr>'}</tbody></table></div>`;
+}
+
+function openRow(r, columns) {
+  const dlg = $("#detail");
+  const main = columns.map((c) => c.key);
+  const keys = [...main, ...Object.keys(r).filter((k) => !main.includes(k))];
+  dlg.innerHTML = `<div class="d-head"><div class="row" style="margin-top:0"><span class="muted">${esc($("#datatabs .on").textContent)}</span><button id="d-close" aria-label="Close">✕</button></div>
+      <h3 id="d-title">${esc(r.medication || r.procedure || r.test || r.what || r.event || "Details")}</h3></div>
+    <div class="d-body"><dl class="fields">${keys.map((k) => `<dt>${esc(k.replaceAll("_", " "))}</dt><dd>${esc(show(r[k])) || '<span class="muted">—</span>'}</dd>`).join("")}</dl></div>`;
+  $("#d-close").onclick = () => dlg.close();
+  if (!dlg.open) dlg.showModal();
+}
+
+async function openSeriesCell(key, bucket) {
+  markSelected({ series: key, bucket });
+  const dlg = $("#detail");
+  dlg.innerHTML = `<div class="d-body"><p class="empty">Loading…</p></div>`;
+  if (!dlg.open) dlg.showModal();
+  const q = new URLSearchParams({ key, bucket, grain: state.grain, as_of: iso(state.clock) });
+  const d = await api(`/api/stays/${state.stay.stay_id}/tabs/${state.tab}/cell?${q}`);
+  const label = document.querySelector(`td.vt[data-key="${CSS.escape(key)}"]`)?.closest("tr").querySelector("td.drug").firstChild.textContent ?? key;
+  dlg.innerHTML = `<div class="d-head"><div class="row" style="margin-top:0"><span class="muted">${esc($("#datatabs .on").textContent)}</span><button id="d-close" aria-label="Close">✕</button></div>
+      <h3 id="d-title">${esc(label)}</h3><div class="muted">${bucketLabel(bucket, state.grain)} · ${d.rows.length} record(s)</div></div>
+    <div class="d-body"><table class="readings"><thead><tr>${d.columns.map((c) => `<th class="l">${esc(c.label)}</th>`).join("")}</tr></thead>
+      <tbody>${d.rows.map((r) => `<tr>${d.columns.map((c) => `<td class="l">${esc(show(r[c.key]))}</td>`).join("")}</tr>`).join("") || '<tr><td class="l empty">No records.</td></tr>'}</tbody></table></div>`;
+  $("#d-close").onclick = () => dlg.close();
 }
 
 const vfmt = (vital, v) => v == null ? "" : vital === "temp" ? v.toFixed(1) : Math.round(v).toString();
@@ -189,7 +317,7 @@ const span = (a, b) => { const m = Math.round((parse(String(b)) - parse(String(a
 function markSelected(sel) {
   state.sel = sel;
   document.querySelectorAll("td.sel").forEach((el) => el.classList.remove("sel"));
-  const q = sel.vital ? `td.vt[data-vital="${sel.vital}"]` : `td.v[data-item="${sel.itemid}"]`;
+  const q = sel.series != null ? `td.vt[data-key="${CSS.escape(sel.series)}"]` : sel.vital ? `td.vt[data-vital="${sel.vital}"]` : `td.v[data-item="${sel.itemid}"]`;
   document.querySelector(`${q}[data-bucket="${sel.bucket}"]`)?.classList.add("sel");
 }
 
@@ -269,6 +397,7 @@ async function openCell(itemid, bucket) {
 $("#grid").addEventListener("click", (e) => {
   const td = e.target.closest("td.v, td.vt");
   if (!td) return;
+  if (td.dataset.key != null) return openSeriesCell(td.dataset.key, td.dataset.bucket);
   td.dataset.vital ? openVital(td.dataset.vital, td.dataset.bucket) : openCell(+td.dataset.item, td.dataset.bucket);
 });
 $("#grid").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("td.v, td.vt")) { e.preventDefault(); e.target.click(); } });
@@ -277,8 +406,14 @@ $("#detail").addEventListener("click", (e) => { if (e.target.id === "detail") e.
 $("#stays").addEventListener("click", (e) => { const el = e.target.closest(".stay"); if (el) selectStay(+el.dataset.id); });
 let debounce;
 $("#q").addEventListener("input", (e) => { clearTimeout(debounce); debounce = setTimeout(() => loadStays(e.target.value.trim()), 250); });
-document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+document.querySelectorAll("#datatabs button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#datatabs button").forEach((x) => x.classList.toggle("on", x === b));
+  state.tab = b.dataset.tab; state.sel = null; state.filter = "";
+  history.replaceState(null, "", `?stay=${state.stay.stay_id}&tab=${state.tab}`);
+  refresh();
+}));
+document.querySelectorAll("#grains button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#grains button").forEach((x) => x.classList.toggle("on", x === b));
   state.grain = b.dataset.grain; state.sel = null; refresh();
 }));
 $("#back").onclick = () => setClock(new Date(+state.clock - 3600e3));
@@ -294,6 +429,11 @@ $("#play").onclick = () => {
 };
 
 const initial = new URLSearchParams(location.search).get("stay");
+const initialTab = new URLSearchParams(location.search).get("tab");
+if (initialTab && document.querySelector(`#datatabs [data-tab="${initialTab}"]`)) {
+  state.tab = initialTab;
+  document.querySelectorAll("#datatabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === initialTab));
+}
 loadStays().then(() => initial && selectStay(+initial));
 </script>
 </body>

@@ -32,6 +32,19 @@ A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were
 - **Click any cell** to see the charted events behind it: start/end, rate, how much of each event fell
   in that hour/day/week, the rest of the same bag (e.g. the carrier fluid of an additive), order,
   weight, and charting delay. Shares always sum to the cell value.
+- **Data tabs** for the selected stay, all on the same pump clock (nothing is shown before it was
+  known: results by their resulted/charted time, running things without their end):
+  - *Fluid balance*: intake by route, output by source, net and cumulative balance.
+  - *Labs*: every result for the admission, last value per period, red when the lab flagged it.
+  - *Assessments*: RASS, GCS, pain, ventilator mode/FiO2/PEEP/tidal volume, daily weight.
+  - *Nutrition*: calories, water, protein, etc. delivered by infusions and feeds.
+  - *Orders*: pharmacy orders with status at the clock, prescribed dose, and given / not given from eMAR.
+  - *eMAR*: barcode-scanned administrations across the admission (not every admission has eMAR).
+  - *Microbiology*: specimens, pending until resulted, organisms and susceptibilities.
+  - *Lines & procedures*: lines (with location), dialysis, imaging, ventilation; ongoing ones without an end.
+  - *Journey & diagnoses*: ED → units → services; ICD diagnoses/procedures and DRGs are coded at
+    discharge, so they stay hidden before discharge unless you turn on "hindsight".
+  Grid tabs have clickable cells; list tabs have a filter and clickable rows.
 - **Pump clock** you can step or replay; nothing after it is shown or used (a drip still running at
   the clock shows "running" and the amount delivered so far, not its eventual end or total).
 - **Current-hour safety panel:** flags on what is running, a **"do not start"** list checked against

@@ -111,3 +111,23 @@ def test_vitals_in_grid_safety_and_drilldown(client):
         "vital": "hr", "bucket": "2150-01-01T10:00:00", "grain": "hour", "as_of": "2150-01-01T12:00:00"}).json()
     assert [r["value"] for r in d["readings"]] == [80, 90]
     assert client.get("/api/stays/101/vitals/cell", params={"vital": "bmi", "bucket": "2150-01-01T10:00:00"}).status_code == 422
+
+
+@pytest.mark.parametrize("tab", ["fluids", "labs", "assessments", "nutrition", "orders", "emar", "micro", "procedures", "journey"])
+def test_every_tab_answers(client, tab):
+    r = client.get(f"/api/stays/101/tabs/{tab}", params={"grain": "day", "as_of": "2150-01-02T12:00:00"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["kind"] in {"series", "table"}
+    assert (body["groups"] if body["kind"] == "series" else body["rows"])
+
+
+def test_tab_errors_and_cell(client):
+    assert client.get("/api/stays/101/tabs/nope").status_code == 404
+    assert client.get("/api/stays/101/tabs/labs", params={"grain": "month"}).status_code == 422
+    assert client.get("/api/stays/101/tabs/orders/cell", params={"key": "x", "bucket": "2150-01-01T10:00:00"}).status_code == 422
+    d = client.get("/api/stays/101/tabs/labs/cell", params={
+        "key": "50971", "bucket": "2150-01-01T10:00:00", "grain": "hour", "as_of": "2150-01-01T12:00:00"}).json()
+    assert [r["value"] for r in d["rows"]] == ["6.2"]
+    j = client.get("/api/stays/101/tabs/journey", params={"as_of": "2150-01-01T12:00:00", "hindsight": True}).json()
+    assert j["coding"] and not j["coding_hidden"]

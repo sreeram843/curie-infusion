@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from .billing.charges import ADMIN_CODES, admin_lines, drug_lines, load_crosswalk
 from .billing.prices import load_asp, load_opps
 from .fhir import BundleIndex
+from .mimic import tabs as data_tabs
 from .mimic.fhir_adapter import build_bundle
 from .mimic.store import GRAINS, VITALS, MimicStore
 from .rules import blocked_medications, evaluate_flags, load_rules, running_at
@@ -189,6 +190,44 @@ def _event_view(r: dict, clock: datetime) -> dict:
         "order": r["linkorderid"], "weight_kg": r["patientweight"],
         "bag": [{**b, "amount": None} for b in r["bag"]] if running else r["bag"],
     }
+
+
+TAB_TABLES = {
+    "fluids": {"inputevents", "outputs"}, "labs": {"labs_all"}, "assessments": {"assessments"},
+    "nutrition": {"ingredients"}, "orders": {"orders", "emar"}, "emar": {"emar"}, "micro": {"micro"},
+    "procedures": {"procedures"}, "journey": {"admissions", "transfers", "services", "diagnoses", "icd_procedures"},
+}
+
+
+def _tab_ready(tab: str) -> None:
+    if tab not in TAB_TABLES:
+        raise HTTPException(404, f"unknown tab {tab}")
+    if missing := TAB_TABLES[tab] - store().tables:
+        raise HTTPException(503, f"data not built: {sorted(missing)}; run `curie-infusion mimic-build`")
+
+
+@app.get("/api/stays/{stay_id}/tabs/{tab}")
+def tab(stay_id: int, tab: str, grain: str = "hour", as_of: datetime | None = None, hindsight: bool = False) -> dict:
+    """One data tab at the pump clock: a series (grid) or a table, see mimic/tabs.py."""
+    _tab_ready(tab)
+    stay = _stay(stay_id)
+    clock = _as_of(stay, as_of)
+    if tab in data_tabs.SERIES:
+        if grain not in GRAINS:
+            raise HTTPException(422, f"grain must be one of {sorted(GRAINS)}")
+        return {"kind": "series", "tab": tab, "grain": grain, "as_of": clock,
+                **data_tabs.SERIES[tab](store(), stay, grain, clock)}
+    return {"kind": "table", "tab": tab, "as_of": clock, **data_tabs.TABLES[tab](store(), stay, clock, hindsight)}
+
+
+@app.get("/api/stays/{stay_id}/tabs/{tab}/cell")
+def tab_cell(stay_id: int, tab: str, key: str, bucket: datetime, grain: str = "hour", as_of: datetime | None = None) -> dict:
+    _tab_ready(tab)
+    if tab not in data_tabs.SERIES or grain not in GRAINS:
+        raise HTTPException(422, "cell drill-down is for grid tabs with grain hour/day/week")
+    stay = _stay(stay_id)
+    clock = _as_of(stay, as_of)
+    return data_tabs.series_cell(store(), stay, tab, key, grain, bucket.replace(tzinfo=None), clock)
 
 
 @app.get("/api/stays/{stay_id}/vitals/cell")
