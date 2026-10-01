@@ -20,7 +20,8 @@
   <main>
     <div class="banner" id="banner"><span class="muted">Select an ICU stay.</span></div>
     <nav class="datatabs" id="datatabs" hidden>
-      <button data-tab="timeline" class="on">Infusions &amp; vitals</button>
+      <button data-tab="overview" class="on">Overview</button>
+      <button data-tab="timeline">Infusions &amp; vitals</button>
       <button data-tab="fluids">Fluid balance</button>
       <button data-tab="labs">Labs</button>
       <button data-tab="assessments">Assessments</button>
@@ -41,9 +42,14 @@
       <button id="back" title="Back 1 hour">−1h</button>
       <input type="datetime-local" id="clock" step="60">
       <button id="fwd" title="Forward 1 hour">+1h</button>
-      <button id="play" title="Advance 1 hour every 2 seconds">▶ Replay</button>
+      <button id="play" title="Advance 1 hour every 2 seconds (Space)">▶ Replay</button>
+      <div class="scrub"><span class="ends" id="scrub-start"></span>
+        <input type="range" id="scrub" step="15" aria-label="Pump clock across the stay">
+        <span class="ends" id="scrub-end"></span></div>
+      <span class="muted" style="font-size:11.5px"><kbd>←</kbd> <kbd>→</kbd> 1 h · <kbd>⇧</kbd> 6 h · <kbd>Space</kbd> replay</span>
     </div>
     <p class="tabnote" id="tabnote" hidden></p>
+    <div id="overview" hidden></div>
     <div class="gridwrap" id="gridwrap" hidden><table id="grid"></table></div>
     <div id="tablewrap" hidden></div>
   </main>
@@ -52,9 +58,10 @@
   </section>
 </div>
 <dialog id="detail" aria-labelledby="d-title"></dialog>
+<script src="/static/overview.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
-const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0, sel: null, tab: "timeline", filter: "", hindsight: false, table: null };
+const state = { stay: null, grain: "hour", clock: null, timer: null, req: 0, sel: null, tab: "overview", hours: 24, ov: null, filter: "", hindsight: false, table: null };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const iso = (d) => d.toISOString().slice(0, 16);   // naive UTC minutes, the MIMIC convention
 const parse = (s) => new Date(s.slice(0, 16) + "Z");
@@ -72,10 +79,14 @@ async function loadStays(q = "") {
 
 async function selectStay(id) {
   state.stay = await api(`/api/stays/${id}`);
-  history.replaceState(null, "", `?stay=${id}${state.tab !== "timeline" ? `&tab=${state.tab}` : ""}`);
+  history.replaceState(null, "", `?stay=${id}${state.tab !== "overview" ? `&tab=${state.tab}` : ""}`);
   $("#nav-billing").href = `/billing?stay=${id}`;
   const s = state.stay;
   state.clock = new Date(Math.min(parse(s.outtime), +parse(s.intime) + 12 * 3600e3));
+  const scrub = $("#scrub");
+  scrub.min = Math.floor(+parse(s.intime) / 60e3); scrub.max = Math.ceil(+parse(s.outtime) / 60e3);
+  $("#scrub-start").textContent = when(new Date(+parse(s.intime)).toISOString());
+  $("#scrub-end").textContent = when(new Date(+parse(s.outtime)).toISOString());
   $("#banner").innerHTML = `<b>Stay ${s.stay_id}</b>
     <span>Subject ${s.subject_id} · ${s.gender}, ${s.anchor_age} y</span>
     <span>${esc(s.first_careunit)}</span>
@@ -95,9 +106,12 @@ function setClock(d) {
 async function refresh() {
   const req = ++state.req;
   $("#clock").value = iso(state.clock);
+  $("#scrub").value = Math.round(+state.clock / 60e3);
+  $("#overview").classList.add("loading");
   const q = `as_of=${iso(state.clock)}`;
   const id = state.stay.stay_id;
-  const view = state.tab === "timeline" ? `/api/stays/${id}/grid?grain=${state.grain}&${q}`
+  const view = state.tab === "overview" ? `/api/stays/${id}/overview?hours=${state.hours}&${q}`
+    : state.tab === "timeline" ? `/api/stays/${id}/grid?grain=${state.grain}&${q}`
     : `/api/stays/${id}/tabs/${state.tab}?grain=${state.grain}&${q}${state.hindsight ? "&hindsight=true" : ""}`;
   const [data, safety] = await Promise.all([
     api(view).catch((e) => ({ error: String(e.message || e) })),
@@ -118,7 +132,14 @@ function bucketLabel(b, grain) {
 }
 
 function renderView(data) {
-  const isTable = data.kind === "table";
+  const isTable = data.kind === "table", isOverview = state.tab === "overview" && !data.error;
+  $("#overview").hidden = !isOverview;
+  $("#overview").classList.remove("loading");
+  if (isOverview) {
+    $("#grains").hidden = true; $("#gridwrap").hidden = true; $("#tablewrap").hidden = true; $("#tabnote").hidden = true;
+    state.ov = data;
+    return drawOverview();
+  }
   $("#grains").hidden = isTable;
   $("#gridwrap").hidden = isTable || !!data.error;
   $("#tablewrap").hidden = !isTable && !data.error;
@@ -133,6 +154,17 @@ function renderView(data) {
 
 const signed = (v) => v === 0 ? "0" : v < 0 ? `−${fmt(-v)}` : fmt(v);
 const cellText = (c) => c.text != null ? c.text : c.v == null ? "" : signed(c.v);
+
+function drawOverview() {
+  if (!state.ov) return;
+  window.CurieOverview.render($("#overview"), state.ov, {
+    onRange: (hours) => { state.hours = hours; refresh(); },
+    onSetClock: (d) => setClock(d),
+    onTable: () => document.querySelector('#datatabs [data-tab="timeline"]').click(),
+  });
+}
+let resizeTimer;
+new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawOverview, 150); }).observe($("#overview"));
 
 function renderSeries(d) {
   const nowBucket = d.buckets[d.buckets.length - 1];
@@ -409,13 +441,23 @@ $("#q").addEventListener("input", (e) => { clearTimeout(debounce); debounce = se
 document.querySelectorAll("#datatabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("#datatabs button").forEach((x) => x.classList.toggle("on", x === b));
   state.tab = b.dataset.tab; state.sel = null; state.filter = "";
-  history.replaceState(null, "", `?stay=${state.stay.stay_id}&tab=${state.tab}`);
+  history.replaceState(null, "", `?stay=${state.stay.stay_id}${state.tab !== "overview" ? `&tab=${state.tab}` : ""}`);
   refresh();
 }));
 document.querySelectorAll("#grains button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll("#grains button").forEach((x) => x.classList.toggle("on", x === b));
   state.grain = b.dataset.grain; state.sel = null; refresh();
 }));
+$("#scrub").oninput = (e) => { $("#clock").value = iso(new Date(e.target.value * 60e3)); };
+$("#scrub").onchange = (e) => setClock(new Date(e.target.value * 60e3));
+document.addEventListener("keydown", (e) => {
+  const target = e.target instanceof Element ? e.target : document.body;
+  if (!state.stay || $("#detail").open || target.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    e.preventDefault();
+    setClock(new Date(+state.clock + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 6 : 1) * 3600e3));
+  } else if (e.key === " " && !target.closest("button")) { e.preventDefault(); $("#play").click(); }
+});
 $("#back").onclick = () => setClock(new Date(+state.clock - 3600e3));
 $("#fwd").onclick = () => setClock(new Date(+state.clock + 3600e3));
 $("#clock").onchange = (e) => e.target.value && setClock(parse(e.target.value));

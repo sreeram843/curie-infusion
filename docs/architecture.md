@@ -11,6 +11,8 @@
 | `cli.py` | `curie-infusion evaluate`: Bundle + `as_of` → JSON safety state; `mimic-build`; `serve`. |
 | `mimic/store.py` | Build the Parquet store from MIMIC-IV 3.1 CSVs (DuckDB): infusions, labs, DRGs, and vitals from `chartevents` (itemids grouped in `VITALS`, implausible values dropped, °C → °F); per-stay queries; the hour/day/week grid. |
 | `mimic/extras.py` | Build steps for the data tabs (one Parquet per source: outputs, procedures, ingredients, assessments, all labs, admissions, transfers, services, ICD codes, microbiology, pharmacy orders, eMAR). |
+| `mimic/overview.py` | Overview data for a range ending at the clock: vitals, infusion segments, boluses, key labs, headline stats. `app.flag_timeline` re-runs the rules at up to 48 steps in the range. |
+| `static/overview.js` | The Overview tiles and shared-axis SVG timeline (no dependencies). Colors are the dataviz reference palette, validated light and dark. |
 | `mimic/tabs.py` | Queries behind the data tabs; each takes the pump clock and returns a series (grid) or a table. |
 | `mimic/fhir_adapter.py` | MIMIC rows → the FHIR Bundle a live feed would have produced by `as_of`. |
 | `summary.py` | Local LM Studio summary of existing flags, with one-to-one output validation and a rule-text fallback. |

@@ -24,6 +24,13 @@ raised, and its output is rejected unless it matches those flags one-to-one.
 
 A local web app that replays one ICU stay from MIMIC-IV 3.1 as if the pumps were streaming into it:
 
+- **Overview** (default tab): stat tiles with 24 h sparklines (safety now, HR, BP, SpO2, RR, temperature,
+  net fluid, running infusions) and one interactive timeline on a shared time axis: a safety-flag lane
+  (the rules re-run across the range, so you see when a flag appeared), infusion swimlanes (bar height =
+  rate relative to that drug's peak, ◇ = bolus), vital-sign panels, and key-lab lanes. Hover for one
+  tooltip with everything at that moment; click to move the pump clock there. Range: 12 h, 24 h,
+  3 days, or the whole stay. Hand-written SVG, no chart library or CDN, so it works offline.
+- **Pump-clock controls:** a scrubber across the stay, ←/→ (1 h), Shift+←/→ (6 h), Space to replay.
 - **Grid** of every infusion and medication given, per drug, by **hour, day, or week**.
 - **Vital signs** (heart rate, systolic/diastolic/mean BP from arterial line or cuff, respiratory
   rate, SpO2, temperature in °F) at the top of the grid as the median per hour/day/week; click a

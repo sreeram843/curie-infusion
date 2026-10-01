@@ -21,6 +21,8 @@ from .billing.prices import load_asp, load_opps
 from .fhir import BundleIndex
 from .mimic import tabs as data_tabs
 from .mimic.fhir_adapter import build_bundle
+from .mimic.overview import overview as overview_data
+from .mimic.overview import time_range
 from .mimic.store import GRAINS, VITALS, MimicStore
 from .rules import blocked_medications, evaluate_flags, load_rules, running_at
 from .summary import summarize
@@ -269,6 +271,41 @@ def _flag_view(flag, idx: BundleIndex, hypothetical: bool) -> dict:
     ref = idx.by_ref.get(target)
     drug = idx.drug_label(ref) if ref else target.split("/", 1)[1]
     return {**asdict(flag), "drug": drug, "hypothetical": hypothetical}
+
+
+MAX_FLAG_STEPS = 48
+
+
+def flag_timeline(stay: dict, start: datetime, clock: datetime) -> list[dict]:
+    """Re-run the rules at evenly spaced moments in [start, clock] (at most 48), as the engine saw each one."""
+    span = clock - start
+    step = max(timedelta(hours=1), span / MAX_FLAG_STEPS)
+    infusions = store().infusions(stay["stay_id"], until=clock, since=start - timedelta(hours=1))
+    labs = store().labs(stay["subject_id"], start - LAB_LOOKBACK, clock)
+    out, t = [], clock
+    while t >= start:
+        rows = [r for r in infusions if r["starttime"] <= t and r["endtime"] >= t - timedelta(hours=1)]
+        recent = [r for r in labs if t - LAB_LOOKBACK <= r["charttime"] <= t]
+        idx = BundleIndex(build_bundle(stay, rows, recent, t))
+        aware = t.replace(tzinfo=UTC)
+        flags = [_flag_view(f, idx, False) for f in evaluate_flags(idx, rules(), aware)]
+        flags += [_flag_view(f, idx, True) for f in blocked_medications(idx, rules(), aware)]
+        counts = {k: sum(f["status"] == k for f in flags) for k in ("do_not_infuse", "review", "insufficient_context")}
+        out.append({"t": t.isoformat(), **counts,
+                    "items": sorted({f"{'Do not start' if f['hypothetical'] else 'Hold'} {f['drug']}" if f["status"] == "do_not_infuse"
+                                     else f"{'Review' if f['status'] == 'review' else 'Cannot check'} {f['drug']}" for f in flags})})
+        t -= step
+    return out[::-1]
+
+
+@app.get("/api/stays/{stay_id}/overview")
+def overview(stay_id: int, as_of: datetime | None = None, hours: int = 24) -> dict:
+    """Everything for the Overview tab over `hours` before the clock (hours <= 0: the whole stay)."""
+    stay = _stay(stay_id)
+    clock = _as_of(stay, as_of)
+    data = overview_data(store(), stay, clock, hours)
+    data["flags"] = flag_timeline(stay, time_range(stay, clock, hours), clock)
+    return {"stay": stay, "as_of": clock, "hours": hours, **data}
 
 
 def _safety(stay_id: int, as_of: datetime | None) -> dict:

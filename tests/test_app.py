@@ -131,3 +131,19 @@ def test_tab_errors_and_cell(client):
     assert [r["value"] for r in d["rows"]] == ["6.2"]
     j = client.get("/api/stays/101/tabs/journey", params={"as_of": "2150-01-01T12:00:00", "hindsight": True}).json()
     assert j["coding"] and not j["coding_hidden"]
+
+
+def test_overview(client):
+    d = client.get("/api/stays/101/overview", params={"as_of": "2150-01-01T12:00:00", "hours": 24}).json()
+    assert d["end"] == "2150-01-01T12:00:00"
+    [kcl] = [lane for lane in d["drips"] if lane["label"] == "Potassium Chloride"]
+    assert kcl["current"]["rate"] == 50 and kcl["segments"][0][1] is None  # running: no end yet
+    assert [b["label"] for b in d["boluses"]] == ["Calcium Gluconate"]
+    assert [p[0] for p in d["vitals"]["hr"]] == ["2150-01-01T10:05:00", "2150-01-01T10:35:00"]  # 11:50 not charted yet
+    [k] = [lab for lab in d["labs"] if lab["key"] == "K"]
+    assert k["points"] == [["2150-01-01T10:00:00", 6.2, True]]
+    holds = [f for f in d["flags"] if f["do_not_infuse"]]
+    assert holds and holds[0]["t"] == "2150-01-01T11:00:00" and "Hold Potassium Chloride" in holds[0]["items"]
+    assert d["stats"]["vitals"]["hr"]["value"] == 90 and d["stats"]["fluid_24h"]["output"] == 300
+    whole = client.get("/api/stays/101/overview", params={"as_of": "2150-01-01T12:00:00", "hours": 0}).json()
+    assert whole["start"] == "2150-01-01T08:00:00"
